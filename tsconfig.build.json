@@ -1,0 +1,12 @@
+{
+	"extends": "./tsconfig.json",
+	"exclude": [
+		"node_modules",
+		"dist",
+		"test",
+		"**/*.spec.ts",
+		"src/components/orders/order.service 2.ts",
+		"src/libs/dto/order/order 2.ts",
+		"src/libs/dto/order/order.input 2.ts"
+	]
+}
