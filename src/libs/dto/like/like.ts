@@ -1,4 +1,5 @@
 import { Field, ObjectType } from '@nestjs/graphql';
+import { LikeGroup } from '../../enums/like.enum';
 
 @ObjectType()
 export class Like {
@@ -6,7 +7,7 @@ export class Like {
 	_id!: string;
 
 	@Field(() => String)
-	likeGroup!: string;
+	likeGroup!: LikeGroup;
 
 	@Field(() => String)
 	likeRefId!: string;

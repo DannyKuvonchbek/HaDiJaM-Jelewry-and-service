@@ -37,8 +37,8 @@ export class ServiceResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Services)
-	public async getServices(@Args('input') input: ServicesInquiry): Promise<Services> {
-		return this.serviceService.getServices(input);
+	public async getServices(@Args('input') input: ServicesInquiry, @AuthMember('_id') memberId?: string): Promise<Services> {
+		return this.serviceService.getServices(input, memberId);
 	}
 
 	@Roles(MemberType.SELLER)

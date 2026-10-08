@@ -42,8 +42,8 @@ export class ProductResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Products)
-	public async getProducts(@Args('input') input: ProductsInquiry): Promise<Products> {
-		return this.productService.getProducts(input);
+	public async getProducts(@Args('input') input: ProductsInquiry, @AuthMember('_id') memberId?: string): Promise<Products> {
+		return this.productService.getProducts(input, memberId);
 	}
 
 	@Roles(MemberType.SELLER)

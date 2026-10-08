@@ -10,6 +10,9 @@ export class ServiceBooking {
 	@Field(() => String)
 	serviceId!: string;
 
+	@Field(() => String, { nullable: true })
+	serviceTitle?: string;
+
 	@Field(() => String)
 	customerId!: string;
 
@@ -29,7 +32,28 @@ export class ServiceBooking {
 	bookingPrice!: number;
 
 	@Field(() => String, { nullable: true })
+	bookingReference!: string;
+
+	@Field(() => String, { nullable: true })
+	selectedTechnician!: string;
+
+	@Field(() => [String], { nullable: true })
+	selectedItems!: string[];
+
+	@Field(() => String, { nullable: true })
+	itemDescription?: string;
+
+	@Field(() => String, { nullable: true })
+	itemPhoto?: string;
+
+	@Field(() => String, { nullable: true })
+	paymentStatus!: string;
+
+	@Field(() => String, { nullable: true })
 	customerNote?: string;
+
+	@Field(() => String, { nullable: true })
+	customerName!: string;
 
 	@Field(() => String)
 	customerPhone!: string;

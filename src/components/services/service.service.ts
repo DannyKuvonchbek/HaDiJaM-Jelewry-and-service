@@ -12,6 +12,7 @@ import { ViewGroup } from '../../libs/enums/view.enum';
 import { LikeService } from '../likes/like.service';
 import { ViewService } from '../views/view.service';
 import { ServiceStatus } from '../../libs/enums/service.enum';
+import { lookupAuthMemberLiked } from '../../libs/config';
 
 @Injectable()
 export class ServiceService {
@@ -73,7 +74,7 @@ export class ServiceService {
 		return service;
 	}
 
-	public async getServices(input: ServicesInquiry): Promise<Services> {
+	public async getServices(input: ServicesInquiry, memberId?: string): Promise<Services> {
 		const search = input.search ?? {};
 		const match: Record<string, any> = { serviceStatus: ServiceStatus.ACTIVE };
 		if (search.serviceType) match.serviceType = search.serviceType;
@@ -94,6 +95,7 @@ export class ServiceService {
 					{ $limit: input.limit },
 					{ $lookup: { from: 'members', localField: 'memberId', foreignField: '_id', as: 'memberData' } },
 					{ $unwind: '$memberData' },
+					...(memberId ? [lookupAuthMemberLiked(memberId, '$_id', LikeGroup.SERVICE)] : []),
 				],
 				metaCounter: [{ $count: 'total' }],
 			} },
@@ -117,7 +119,8 @@ export class ServiceService {
 		const modifier = await this.likeService.toggleLike({ memberId, likeRefId: serviceId, likeGroup: LikeGroup.SERVICE });
 		const updated = await this.serviceModel.findByIdAndUpdate(serviceId, { $inc: { serviceLikes: modifier } }, { new: true }).exec();
 		if (!updated) throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
-		return updated;
+		const meLiked = await this.likeService.checkLikeExistence({ memberId, likeRefId: serviceId, likeGroup: LikeGroup.SERVICE });
+		return { ...updated.toObject(), meLiked } as Service;
 	}
 
 	public async getAllServicesByAdmin(input: ServicesInquiry): Promise<Services> {

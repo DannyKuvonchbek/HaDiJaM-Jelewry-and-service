@@ -1,5 +1,6 @@
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 import { Member, TotalCounter } from '../member/member';
+import { MeLiked } from '../like/like';
 
 @ObjectType()
 export class Follow {
@@ -41,6 +42,15 @@ export class Following {
 
 	@Field(() => String)
 	followerId!: string;
+
+	@Field(() => Date)
+	updatedAt!: Date;
+
+	@Field(() => [MeLiked], { nullable: true })
+	meLiked?: MeLiked[];
+
+	@Field(() => [MeFollowed], { nullable: true })
+	meFollowed?: MeFollowed[];
 
 	@Field(() => Member, { nullable: true })
 	followingData?: Member;

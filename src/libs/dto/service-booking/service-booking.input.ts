@@ -9,6 +9,26 @@ export class ServiceBookingInput {
 	@Field(() => String)
 	serviceId!: string;
 
+	@IsOptional()
+	@Field(() => String, { nullable: true })
+	selectedTechnician?: string;
+
+	@IsOptional()
+	@Field(() => [String], { nullable: true })
+	selectedItems?: string[];
+
+	@IsOptional()
+	@Field(() => String, { nullable: true })
+	itemDescription?: string;
+
+	@IsOptional()
+	@Field(() => String, { nullable: true })
+	itemPhoto?: string;
+
+	@IsOptional()
+	@Field(() => String, { nullable: true })
+	customerName?: string;
+
 	@IsNotEmpty()
 	@Field(() => Date)
 	bookingDate!: Date;
@@ -49,4 +69,19 @@ export class ServiceBookingsInquiry {
 	@IsOptional()
 	@Field(() => Direction, { nullable: true })
 	direction?: Direction;
+}
+
+@InputType()
+export class ServiceBookingAvailabilityInput {
+	@IsNotEmpty()
+	@Field(() => String)
+	serviceId!: string;
+
+	@IsNotEmpty()
+	@Field(() => String)
+	date!: string;
+
+	@IsNotEmpty()
+	@Field(() => String)
+	technician!: string;
 }

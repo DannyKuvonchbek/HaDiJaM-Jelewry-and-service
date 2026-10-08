@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model, Types } from "mongoose";
+import { Model } from "mongoose";
 import { LikeInput } from "../../libs/dto/like/like.input";
-import { Like } from "../../libs/dto/like/like";
+import { Like, MeLiked } from "../../libs/dto/like/like";
+import { Products } from "../../libs/dto/product/product";
 import { LikeGroup } from "../../libs/enums/like.enum";
 import { Message } from "../../libs/enums/common.enum";
+import { shapeIntoMongoObjectId } from "../../libs/config";
 
 @Injectable()
 export class LikeService {
@@ -12,13 +14,13 @@ export class LikeService {
 
   public async toggleLike(input: LikeInput): Promise<number> {
     const filter = {
-      memberId: input.memberId,
-      likeRefId: input.likeRefId,
+      memberId: shapeIntoMongoObjectId(input.memberId),
+      likeRefId: shapeIntoMongoObjectId(input.likeRefId),
       likeGroup: input.likeGroup,
     };
     const existing = await this.likeModel.findOne(filter).exec();
     if (existing) {
-      await this.likeModel.findByIdAndDelete(existing._id).exec();
+      await this.likeModel.findOneAndDelete(filter).exec();
       return -1;
     }
     try {
@@ -31,12 +33,12 @@ export class LikeService {
 
   public async checkLikeExistence(
     input: LikeInput,
-  ): Promise<{ memberId: string; likeRefId: string; myFavorite: boolean }[]> {
-    const found = await this.likeModel.exists({
-      memberId: input.memberId,
-      likeRefId: input.likeRefId,
+  ): Promise<MeLiked[]> {
+    const found = await this.likeModel.findOne({
+      memberId: shapeIntoMongoObjectId(input.memberId),
+      likeRefId: shapeIntoMongoObjectId(input.likeRefId),
       likeGroup: input.likeGroup,
-    });
+    }).exec();
     return found
       ? [
           {
@@ -52,11 +54,11 @@ export class LikeService {
     memberId: string,
     page: number,
     limit: number,
-  ): Promise<any> {
-    const [data] = await this.likeModel.aggregate([
+  ): Promise<Products> {
+    const [result] = await this.likeModel.aggregate([
       {
         $match: {
-          memberId: new Types.ObjectId(memberId),
+          memberId: shapeIntoMongoObjectId(memberId),
           likeGroup: LikeGroup.PRODUCT,
         },
       },
@@ -82,6 +84,6 @@ export class LikeService {
         },
       },
     ]);
-    return data ?? { list: [], metaCounter: [] };
+    return result ?? { list: [], metaCounter: [] };
   }
 }

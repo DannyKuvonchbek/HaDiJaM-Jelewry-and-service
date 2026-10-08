@@ -6,6 +6,7 @@ import {
 } from "../../libs/dto/service-booking/service-booking";
 import {
   ServiceBookingInput,
+  ServiceBookingAvailabilityInput,
   ServiceBookingsInquiry,
 } from "../../libs/dto/service-booking/service-booking.input";
 import { ServiceBookingUpdate } from "../../libs/dto/service-booking/service-booking.update";
@@ -24,6 +25,14 @@ export class ServiceBookingResolver {
     @AuthMember("_id") customerId: string,
   ): Promise<ServiceBooking> {
     return await this.bookingService.createBooking(customerId, input);
+  }
+
+  @UseGuards(AuthGuard)
+  @Query(() => [String])
+  public async getUnavailableServiceBookingSlots(
+    @Args("input") input: ServiceBookingAvailabilityInput,
+  ): Promise<string[]> {
+    return this.bookingService.getUnavailableSlots(input);
   }
 
   @UseGuards(AuthGuard)

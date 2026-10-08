@@ -1,5 +1,5 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, Min } from 'class-validator';
+import { IsArray, IsIn, IsNotEmpty, IsOptional, IsString, Length, Min } from 'class-validator';
 import { Direction } from '../../enums/common.enum';
 import { ProductStatus } from '../../enums/product.enum';
 import { availableProductSorts } from '../../config';
@@ -97,6 +97,23 @@ class ProductSearch {
 	@IsOptional()
 	@Field(() => Number, { nullable: true })
 	maxPrice?: number;
+
+	@IsOptional()
+	@IsArray()
+	@IsString({ each: true })
+	@Field(() => [String], { nullable: true })
+	metals?: string[];
+
+	@IsOptional()
+	@IsString()
+	@Field(() => String, { nullable: true })
+	gemstone?: string;
+
+	@IsOptional()
+	@IsArray()
+	@IsString({ each: true })
+	@Field(() => [String], { nullable: true })
+	certifications?: string[];
 }
 
 @InputType()

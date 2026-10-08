@@ -4,6 +4,7 @@ import { ProductsModule } from './products/products.module';
 import { ServicesModule } from './services/services.module';
 import { OrdersModule } from './orders/orders.module';
 import { ServiceBookingsModule } from './service-bookings/service-bookings.module';
+import { SalonReservationsModule } from './salon-reservations/salon-reservations.module';
 import { ServiceSchedulesModule } from './service-schedules/service-schedules.module';
 import { ServiceRequestsModule } from './service-requests/service-requests.module';
 import { ServiceDeliveriesModule } from './service-deliveries/service-deliveries.module';
@@ -22,6 +23,7 @@ import { AuthModule } from './auth/auth.module';
 		ServicesModule,
 		OrdersModule,
 		ServiceBookingsModule,
+		SalonReservationsModule,
 		ServiceSchedulesModule,
 		ServiceRequestsModule,
 		ServiceDeliveriesModule,

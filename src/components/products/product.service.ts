@@ -22,6 +22,23 @@ import { LikeGroup } from "../../libs/enums/like.enum";
 import { ViewGroup } from "../../libs/enums/view.enum";
 import { LikeInput } from "../../libs/dto/like/like.input";
 import { ViewInput } from "../../libs/dto/view/view.input";
+import { lookupAuthMemberLiked } from "../../libs/config";
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const certificationSearchTerms: Record<string, string[]> = {
+  "GIA Dossier / Diamond": ["GIA", "Dossier"],
+  "State Metrology Hallmark": ["State Metrology", "State Assay", "Hallmark"],
+  "HaDiJaM Vault Escrow Seal": ["HaDiJaM Vault Escrow Seal", "Escrow Seal", "Vault Seal"],
+};
+
+const metalSearchTerms: Record<string, string[]> = {
+  "18K Yellow Gold": ["18K Yellow Gold", "18K Pure Gold", "18K Gold", "Yellow Gold"],
+  "24K Pure Gold": ["24K Pure Gold", "24K Investment Gold", "24K Gold"],
+  "18K White Gold": ["18K White Gold", "White Gold"],
+  "18K Rose Gold": ["18K Rose Gold", "Rose Gold"],
+  "Platinum 950": ["Platinum 950", "Platinum (Pt 950)", "Pt 950"],
+};
 
 @Injectable()
 export class ProductService {
@@ -101,7 +118,8 @@ export class ProductService {
       .exec();
     if (!updated)
       throw new InternalServerErrorException(Message.SOMETHING_WENT_WRONG);
-    return updated;
+    const meLiked = await this.likeService.checkLikeExistence(input);
+    return { ...updated.toObject(), meLiked } as Product;
   }
 
   public async getFavorites(
@@ -158,17 +176,22 @@ export class ProductService {
     return product;
   }
 
-  public async getProducts(input: ProductsInquiry): Promise<Products> {
+  public async getProducts(
+    input: ProductsInquiry,
+    memberId?: string,
+  ): Promise<Products> {
     const { search } = input;
     const match: Record<string, any> = { productStatus: ProductStatus.ACTIVE };
     if (search.memberId && Types.ObjectId.isValid(search.memberId))
       match.memberId = new Types.ObjectId(search.memberId);
     if (search.productType) match.productType = search.productType;
-    if (search.text?.trim())
-      match.productTitle = {
-        $regex: search.text.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        $options: "i",
-      };
+    if (search.text?.trim()) {
+      const textRegex = escapeRegex(search.text.trim());
+      match.$or = [
+        { productTitle: { $regex: textRegex, $options: "i" } },
+        { productDesc: { $regex: textRegex, $options: "i" } },
+      ];
+    }
     if (search.minPrice !== undefined || search.maxPrice !== undefined) {
       match.productPrice = {};
       if (search.minPrice !== undefined)
@@ -176,6 +199,38 @@ export class ProductService {
       if (search.maxPrice !== undefined)
         match.productPrice.$lte = search.maxPrice;
     }
+    const descriptionConditions: Record<string, any>[] = [];
+    if (search.metals?.length) {
+      const metalTerms = search.metals.flatMap(
+        (metal) => metalSearchTerms[metal] ?? [metal],
+      );
+      const metalRegex = metalTerms.map(escapeRegex).join("|");
+      descriptionConditions.push({
+        $or: [
+          { productDesc: { $regex: metalRegex, $options: "i" } },
+          { productTitle: { $regex: metalRegex, $options: "i" } },
+        ],
+      });
+    }
+    if (search.gemstone?.trim()) {
+      const gemstoneRegex =
+        search.gemstone.trim().toLowerCase() === "no gems"
+          ? "not specified|no gems?|no gemstone|no gemstones|without gems?|gold only|none"
+          : escapeRegex(search.gemstone.trim().replace(/^natural\s+/i, ""));
+      descriptionConditions.push({
+        productDesc: { $regex: gemstoneRegex, $options: "i" },
+      });
+    }
+    if (search.certifications?.length) {
+      const certificationTerms = search.certifications.flatMap(
+        (certification) => certificationSearchTerms[certification] ?? [certification],
+      );
+      const certificationRegex = certificationTerms.map(escapeRegex).join("|");
+      descriptionConditions.push({
+        productDesc: { $regex: certificationRegex, $options: "i" },
+      });
+    }
+    if (descriptionConditions.length) match.$and = descriptionConditions;
     const sort = {
       [input.sort ?? "createdAt"]: input.direction ?? Direction.DESC,
     };
@@ -187,6 +242,9 @@ export class ProductService {
           list: [
             { $skip: (input.page - 1) * input.limit },
             { $limit: input.limit },
+            ...(memberId
+              ? [lookupAuthMemberLiked(memberId, "$_id", LikeGroup.PRODUCT)]
+              : []),
           ],
           metaCounter: [{ $count: "total" }],
         },
