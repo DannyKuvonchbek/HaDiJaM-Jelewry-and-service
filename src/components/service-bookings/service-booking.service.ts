@@ -73,8 +73,12 @@ export class ServiceBookingService {
       ATELIER_MILANO_RESTORATION: "Maestro Marco Bellini",
       ATELIER_MILANO_POLISHING: "Maestro Marco Bellini",
     };
-    const expectedAtelierTechnician = atelierTechnicians[(service as any).serviceCategory];
-    if (expectedAtelierTechnician && selectedTechnician !== expectedAtelierTechnician)
+    const expectedAtelierTechnician =
+      atelierTechnicians[(service as any).serviceCategory];
+    if (
+      expectedAtelierTechnician &&
+      selectedTechnician !== expectedAtelierTechnician
+    )
       throw new BadRequestException(Message.BAD_REQUEST);
     const isPolishing = serviceKind === "POLISHING";
     const isRepair = serviceKind === "REPAIR";
@@ -199,7 +203,12 @@ export class ServiceBookingService {
           : 45;
     const bookingPrice = isRepair
       ? 45
-      : servicePrice * (isPolishing ? selectedItems.length : 1);
+      : servicePrice *
+        (isPolishing
+          ? selectedItems.length
+          : (service as any).serviceCategory === "ATELIER_MILANO_POLISHING"
+            ? Math.max(selectedItems.length, 1)
+            : 1);
     const providerId = String((service as any).memberId);
     const slotKey = `${providerId}:${dateLabel}:${timeLabel}`;
     const bookingReference = `HDJ-SVC-${new Types.ObjectId().toHexString().slice(-10).toUpperCase()}`;
@@ -241,10 +250,47 @@ export class ServiceBookingService {
     const dayEnd = new Date(`${input.date}T23:59:59.999+09:00`);
     const service: any = await this.serviceModel
       .findOne({ _id: input.serviceId, serviceStatus: ServiceStatus.ACTIVE })
-      .select("memberId")
+      .select("memberId serviceCategory")
       .lean()
       .exec();
     if (!service) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+    // Atelier availability must match the schedule checked during creation.
+    const atelierTimes: Record<string, string[]> = {
+      ATELIER_KANG_CUSTOM: ["14:00", "16:30"],
+      ATELIER_KANG_RESIZING: ["14:00", "16:30"],
+      ATELIER_AURUM_GEMOLOGY: ["10:00", "14:00", "17:00"],
+      ATELIER_AURUM_ASSAY: ["10:00", "14:00", "17:00"],
+      ATELIER_MILANO_RESTORATION: ["11:00", "14:00", "17:00"],
+      ATELIER_MILANO_POLISHING: ["11:00", "14:00", "17:00"],
+    };
+    const slots = atelierTimes[service.serviceCategory];
+    const unavailable: string[] = [];
+    if (slots) {
+      const dayOfWeek = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Seoul",
+        weekday: "long",
+      }).format(dayStart);
+      const schedule: any = await this.scheduleModel
+        .findOne({
+          serviceId: service._id,
+          dayOfWeek: { $regex: new RegExp(`^${dayOfWeek}$`, "i") },
+          isWorking: true,
+        })
+        .lean()
+        .exec();
+      unavailable.push(
+        ...slots.filter(
+          (time) =>
+            !schedule ||
+            time < schedule.startTime ||
+            time >= schedule.endTime ||
+            (schedule.breakStartTime &&
+              schedule.breakEndTime &&
+              time >= schedule.breakStartTime &&
+              time < schedule.breakEndTime),
+        ),
+      );
+    }
     const rows = await this.bookingModel
       .find({
         providerId: service.memberId,
@@ -256,14 +302,19 @@ export class ServiceBookingService {
       .select("bookingTime")
       .lean()
       .exec();
-    return rows.map((row) =>
-      new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Seoul",
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23",
-      }).format(row.bookingTime),
-    );
+    return [
+      ...new Set([
+        ...unavailable,
+        ...rows.map((row) =>
+          new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Seoul",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          }).format(row.bookingTime),
+        ),
+      ]),
+    ];
   }
 
   public async updateBooking(

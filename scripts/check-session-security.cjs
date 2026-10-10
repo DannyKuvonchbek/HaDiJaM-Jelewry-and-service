@@ -44,6 +44,31 @@ async function main(){
   fs.rmSync(path.resolve(uploadResult.data.imageUploader),{force:true});
   const invalidProfile=await fetch(base+'/graphql',{method:'POST',headers:{...headers,Authorization:'Bearer '+first.accessToken},body:JSON.stringify({query:'mutation($input:MemberUpdate!){updateMember(input:$input){_id}}',variables:{input:{_id:String(user._id),memberFullName:''}}})});
   const invalidProfileResult=await invalidProfile.json();assert.match(invalidProfileResult.errors[0].message,/memberFullName/);
+  const appointment=new Date(Date.now()+2*86400000);
+  const bookingResponse=await fetch(base+'/graphql',{method:'POST',headers:{...headers,Authorization:'Bearer '+first.accessToken},body:JSON.stringify({query:'mutation($input:SalonReservationInput!){createSalonReservation(input:$input){_id reservationReference}}',variables:{input:{suiteId:'ring-resizing-bench',suiteName:'Ring Resizing Bench',bookingDate:appointment.toISOString(),bookingTime:appointment.toISOString(),guestName:'Isolated Test',guestContact:'+998901111111',itemManifest:'{}',selectedAmenities:['Goldsmith: Master Kim Do-Hwan'],valetRequested:false}}})});
+  const bookingResult=await bookingResponse.json();assert.equal(bookingResult.errors,undefined,JSON.stringify(bookingResult.errors));assert.ok(bookingResult.data.createSalonReservation.reservationReference);
+  // Repair/cleaning pages may select the seeded Milano atelier categories.
+  const provider=await members.create({memberNick:'bookingProvider',memberPhone:'+998904444444',memberPassword:'unused',memberType:'SELLER'});
+  const nextDay='2099-10-13'; // Future KST slot, isolated data only.
+  const frontendRulesSource=fs.readFileSync(path.resolve(__dirname,'../../Hadijam    frontend/libs/utils/serviceBookingRules.ts'),'utf8');
+  const frontendRulesModule={exports:{}};new Function('module','exports',require('typescript').transpileModule(frontendRulesSource,{compilerOptions:{module:require('typescript').ModuleKind.CommonJS}}).outputText)(frontendRulesModule,frontendRulesModule.exports);
+  let appointmentIndex=0;
+  for(const [category,rule] of Object.entries(frontendRulesModule.exports.atelierBookingRules)) {
+   const nextDay=new Date(Date.UTC(2099,9,13+appointmentIndex++,3)).toISOString().slice(0,10);
+   const bookedService=await conn.model('Service').create({serviceType:'ATELIER',serviceStatus:'ACTIVE',serviceTitle:category.endsWith('POLISHING')?'Ultrasonic Cleaning & Rhodium Polish':'Jewelry Repair & Restoration',serviceCategory:category,servicePrice:category.endsWith('POLISHING')?35:90,serviceDuration:'Same day',serviceImages:[],memberId:provider._id});
+   const dayName=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',weekday:'long'}).format(new Date(nextDay+'T12:00:00+09:00'));
+   await conn.model('ServiceSchedule').create({serviceId:bookedService._id,providerId:provider._id,dayOfWeek:dayName,isWorking:true,startTime:rule.slots[0],endTime:'18:00'});
+   const slot=rule.slots[0];
+   const bookInput={serviceId:String(bookedService._id),selectedTechnician:rule.technician,selectedItems:category.endsWith('POLISHING')?['Ring','Necklace']:[],itemDescription:'Restore the family ring',customerName:'Isolated Test',customerPhone:'+998901111111',customerAddress:'Test address',bookingDate:new Date(nextDay+'T12:00:00+09:00').toISOString(),bookingTime:new Date(nextDay+'T'+slot+':00+09:00').toISOString()};
+   const callBooking=async input=>{const response=await fetch(base+'/graphql',{method:'POST',headers:{...headers,Authorization:'Bearer '+first.accessToken},body:JSON.stringify({query:'mutation($input:ServiceBookingInput!){createServiceBooking(input:$input){bookingReference bookingPrice selectedTechnician}}',variables:{input}})});return response.json();};
+   assert.ok((await callBooking({...bookInput,selectedTechnician:'Master Kang Min-Seok'})).errors);
+   const validBooking=await callBooking(bookInput);assert.equal(validBooking.errors,undefined,JSON.stringify(validBooking.errors));assert.equal(validBooking.data.createServiceBooking.bookingPrice,category.endsWith('POLISHING')?70:90);
+   assert.ok((await callBooking(bookInput)).errors); // Already occupied provider slot.
+   const {ServiceBookingService}=require('../dist/components/service-bookings/service-booking.service');
+   await conn.model('ServiceSchedule').updateOne({serviceId:bookedService._id},{$set:{isWorking:false}});
+   const unavailable=await app.get(ServiceBookingService).getUnavailableSlots({serviceId:String(bookedService._id),date:nextDay,technician:rule.technician});assert.ok(rule.slots.every(time=>unavailable.includes(time)));
+  }
+  console.log('PASS: salon reservation and all six atelier frontend staff/slot contracts, prices, duplicate slots and closed schedules.');
   const jwt=new JwtService({secret:process.env.JWT_SECRET}),claims=jwt.decode(first.accessToken);
   assert.deepEqual(Object.keys(claims).sort(),['aud','exp','iat','iss','sid','sub']);assert.equal(claims.exp-claims.iat,240);
   assert.notEqual(claims.sid,jwt.decode(second.accessToken).sid);
