@@ -125,7 +125,7 @@ export class OAuthService {
   }
 
   async consumeTicket(ticket: string) {
-    const record = await this.tickets.findOneAndDelete({ _id: hash(ticket), expiresAt: { $gt: new Date() } }).lean();
+    const record: any = await this.tickets.findOneAndDelete({ _id: hash(ticket), expiresAt: { $gt: new Date() } }).lean().exec();
     if (!record) throw new BadRequestException("Sign-in link expired. Please try again.");
     return String(record.memberId);
   }

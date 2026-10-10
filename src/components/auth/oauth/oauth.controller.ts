@@ -5,12 +5,18 @@ import { OAuthService } from "./oauth.service";
 import { OAuthExchangeInput } from "./oauth-exchange.input";
 import { SessionService } from "../sessions/session.service";
 import { limitAuth, requireBrowserRequest, setRefresh } from "../sessions/auth-security";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
 
 type Provider = "google" | "facebook";
 const cookieNames = { state: "hadijam-oauth-state", next: "hadijam-oauth-next", seller: "hadijam-oauth-seller" };
 @Controller("auth/oauth")
 export class OAuthController {
-  constructor(private readonly oauth: OAuthService, private readonly sessions: SessionService) {}
+  constructor(
+    private readonly oauth: OAuthService,
+    private readonly sessions: SessionService,
+    @InjectModel("Member") private readonly members: Model<any>,
+  ) {}
   private provider(value: string): Provider {
     if (value !== "google" && value !== "facebook") throw new BadRequestException("Unsupported sign-in provider.");
     return value;
@@ -60,8 +66,10 @@ export class OAuthController {
     requireBrowserRequest(req);
     limitAuth(req, "oauth-exchange", 10);
     const memberId = await this.oauth.consumeTicket(input.ticket);
-    const { member, refreshToken, expiresAt, accessToken } = await this.sessions.create(memberId);
+    const { refreshToken, expiresAt, accessToken } = await this.sessions.create(memberId);
     setRefresh(res, refreshToken, expiresAt);
+    const member: any = await this.members.findById(memberId).lean().exec();
+    if (!member) throw new BadRequestException("The account could not be loaded.");
     return { accessToken, member: { _id: String(member._id), memberNick: member.memberNick, memberFullName: member.memberFullName || "", memberType: member.memberType, memberStatus: member.memberStatus, memberImage: member.memberImage || "", memberPhone: member.memberPhone || "", sellerIntent: member.sellerIntent || false } };
   }
 }
