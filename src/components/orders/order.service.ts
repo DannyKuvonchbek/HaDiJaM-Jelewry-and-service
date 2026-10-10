@@ -148,7 +148,7 @@ export class OrderService {
       .findByIdAndUpdate(input._id, update, { new: true })
       .exec();
     if (!updated) throw new InternalServerErrorException(Message.UPDATE_FAILED);
-    return updated;
+    return this.withItems(updated);
   }
 
   public async updateOrderItem(
@@ -191,7 +191,10 @@ export class OrderService {
       [OrderItemStatus.DELIVERED]: [OrderItemStatus.RETURN_REQUESTED],
     };
     const transitions = isSeller ? sellerTransitions : customerTransitions;
-    if (!isAdmin && !transitions[item.itemStatus]?.includes(input.itemStatus)) {
+    const allowed = isAdmin
+      ? [...(sellerTransitions[item.itemStatus] ?? []), ...(customerTransitions[item.itemStatus] ?? [])]
+      : transitions[item.itemStatus] ?? [];
+    if (!allowed.includes(input.itemStatus)) {
       throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
     }
 
@@ -230,7 +233,12 @@ export class OrderService {
       )
       .exec();
     if (!order) throw new InternalServerErrorException(Message.UPDATE_FAILED);
-    return order;
+    return this.withItems(order);
+  }
+
+  private async withItems(order: Order & { toObject(): Order }): Promise<Order> {
+    const items = await this.orderItemModel.find({ orderId: order._id }).exec();
+    return { ...order.toObject(), items } as Order;
   }
 
   private async refreshOrderStatus(orderId: string): Promise<void> {
@@ -275,8 +283,31 @@ export class OrderService {
     pipeline.push({
       $lookup: {
         from: "orderItems",
-        localField: "_id",
-        foreignField: "orderId",
+        let: { orderId: "$_id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$orderId", "$$orderId"] } } },
+          {
+            $lookup: {
+              from: "products",
+              localField: "productId",
+              foreignField: "_id",
+              as: "currentProduct",
+            },
+          },
+          {
+            $addFields: {
+              // Preserve purchase-time snapshots; recover missing legacy images.
+              productImages: {
+                $cond: [
+                  { $gt: [{ $size: { $ifNull: ["$productImages", []] } }, 0] },
+                  "$productImages",
+                  { $ifNull: [{ $arrayElemAt: ["$currentProduct.productImages", 0] }, []] },
+                ],
+              },
+            },
+          },
+          { $project: { currentProduct: 0 } },
+        ],
         as: "items",
       },
     });

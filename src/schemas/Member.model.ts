@@ -8,6 +8,7 @@ import {
 const MemberSchema = new Schema(
   {
     memberType: { type: String, enum: MemberType, default: MemberType.USER },
+    sellerIntent: { type: Boolean, default: false },
     memberStatus: {
       type: String,
       enum: MemberStatus,
@@ -34,6 +35,7 @@ const MemberSchema = new Schema(
       select: false,
     },
 
+    sellerApprovedAt: { type: Date },
     memberFullName: { type: String },
 
     memberImage: { type: String, default: "" },

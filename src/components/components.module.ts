@@ -1,3 +1,4 @@
+import { GovernanceModule } from './governance/governance.module';
 import { Module } from '@nestjs/common';
 import { MembersModule } from './members/members.module';
 import { ProductsModule } from './products/products.module';
@@ -15,9 +16,13 @@ import { FollowsModule } from './follows/follows.module';
 import { CommentsModule } from './comments/comments.module';
 import { BoardArticlesModule } from './board-articles/board-articles.module';
 import { AuthModule } from './auth/auth.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { AtelierChatModule } from './atelier-chat/atelier-chat.module';
+import { AIModule } from './ai/ai.module';
 
 @Module({
 	imports: [
+        GovernanceModule,
 		MembersModule,
 		ProductsModule,
 		ServicesModule,
@@ -34,6 +39,9 @@ import { AuthModule } from './auth/auth.module';
 		CommentsModule,
 		BoardArticlesModule,
 		AuthModule,
+		NotificationsModule,
+		AtelierChatModule,
+		AIModule,
 	],
 })
 export class ComponentsModule {}

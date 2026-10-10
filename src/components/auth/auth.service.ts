@@ -1,3 +1,4 @@
+import { SessionService } from './sessions/session.service';
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
@@ -11,6 +12,7 @@ import { Message } from "../../libs/enums/common.enum";
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
+    private readonly sessions: SessionService,
     @InjectModel("Member") private readonly memberModel: Model<Member>,
   ) {}
 
@@ -26,31 +28,10 @@ export class AuthService {
     return bcrypt.compare(password, hashedPassword);
   }
 
-  public async createToken(member: Member): Promise<string> {
-    const source = (member as any)._doc ?? member;
-    const payload = { ...source };
-    delete payload.memberPassword;
-    return this.jwtService.signAsync(payload);
-  }
-
-  public async verifyToken(token: string): Promise<Member> {
-    return this.jwtService.verifyAsync<Member>(token);
-  }
-
+  public async createSession(member: Member) { return this.sessions.create(String(member._id)); }
+  public async revokeMember(memberId: string) { return this.sessions.revokeMember(memberId); }
+  public async verifyToken(token: string): Promise<Member> { return this.getAuthenticatedMember(token); }
   public async getAuthenticatedMember(token: string): Promise<Member> {
-    const tokenMember = await this.verifyToken(token);
-    if (!Types.ObjectId.isValid(tokenMember._id)) {
-      throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
-    }
-
-    const member = await this.memberModel
-      .findById(tokenMember._id)
-      .lean()
-      .exec();
-    if (!member || member.memberStatus !== MemberStatus.ACTIVE) {
-      throw new UnauthorizedException(Message.NOT_AUTHENTICATED);
-    }
-
-    return member as Member;
+    return (await this.sessions.authenticate(token)).member as Member;
   }
 }

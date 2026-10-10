@@ -1,3 +1,7 @@
+import { PrivateMediaController } from './sessions/private-media.controller';
+import { SessionSchema } from './sessions/session.schema';
+import { SessionService } from './sessions/session.service';
+import { SessionController } from './sessions/session.controller';
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { JwtModule } from "@nestjs/jwt";
@@ -14,19 +18,20 @@ import MemberSchema from "../../schemas/Member.model";
     MongooseModule.forFeature([
       { name: "AuthRecord", schema: AuthRecordSchema },
       { name: "Member", schema: MemberSchema },
+      { name: "AuthSession", schema: SessionSchema },
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>("JWT_SECRET"),
-        signOptions: {
-          expiresIn: config.get<string>("JWT_EXPIRES_IN") ?? "30d",
-        },
-      }),
+      useFactory: (config: ConfigService) => {
+        const secret=config.getOrThrow<string>('JWT_SECRET');
+        if(process.env.NODE_ENV==='production'&&secret.length<32)throw new Error('JWT_SECRET must have at least 32 characters in production.');
+        return {secret,signOptions:{expiresIn:240,issuer:'hadijam-api',audience:'hadijam-web',algorithm:'HS256'}};
+      },
     }),
   ],
-  providers: [AuthService, AuthGuard, WithoutGuard, RolesGuard],
-  exports: [AuthService, AuthGuard, WithoutGuard, RolesGuard],
+  controllers: [SessionController, PrivateMediaController],
+  providers: [SessionService, AuthService, AuthGuard, WithoutGuard, RolesGuard],
+  exports: [SessionService, AuthService, AuthGuard, WithoutGuard, RolesGuard],
 })
 export class AuthModule {}

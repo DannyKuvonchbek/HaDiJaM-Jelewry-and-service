@@ -23,6 +23,7 @@ function getBookingServiceKind(service: {
   serviceCategory?: string;
   serviceTitle?: string;
 }): "REPAIR" | "POLISHING" | "OTHER" {
+  if (service.serviceCategory?.startsWith("ATELIER_")) return "OTHER";
   const identity =
     `${service.serviceCategory ?? ""} ${service.serviceTitle ?? ""}`
       .toLowerCase()
@@ -44,6 +45,7 @@ export class ServiceBookingService {
     @InjectModel("ServiceBooking")
     private readonly bookingModel: Model<ServiceBooking>,
     @InjectModel("Service") private readonly serviceModel: Model<any>,
+    @InjectModel("ServiceSchedule") private readonly scheduleModel: Model<any>,
   ) {}
 
   public async createBooking(
@@ -63,6 +65,17 @@ export class ServiceBookingService {
       input.selectedTechnician?.trim() || "Atelier Concierge";
     const selectedItems = [...new Set(input.selectedItems ?? [])];
     const serviceKind = getBookingServiceKind(service as any);
+    const atelierTechnicians: Record<string, string> = {
+      ATELIER_KANG_CUSTOM: "Master Min-Seok Kang",
+      ATELIER_KANG_RESIZING: "Master Min-Seok Kang",
+      ATELIER_AURUM_GEMOLOGY: "Dr. David C. Vance",
+      ATELIER_AURUM_ASSAY: "Dr. David C. Vance",
+      ATELIER_MILANO_RESTORATION: "Maestro Marco Bellini",
+      ATELIER_MILANO_POLISHING: "Maestro Marco Bellini",
+    };
+    const expectedAtelierTechnician = atelierTechnicians[(service as any).serviceCategory];
+    if (expectedAtelierTechnician && selectedTechnician !== expectedAtelierTechnician)
+      throw new BadRequestException(Message.BAD_REQUEST);
     const isPolishing = serviceKind === "POLISHING";
     const isRepair = serviceKind === "REPAIR";
     if (!selectedTechnician || (isRepair && !input.itemDescription?.trim()))
@@ -136,6 +149,48 @@ export class ServiceBookingService {
       : ["10:00", "11:30", "14:00", "15:30", "17:00", "18:30"];
     if ((isRepair || isPolishing) && !allowedTimes.includes(timeLabel))
       throw new BadRequestException(Message.BAD_REQUEST);
+    if ((service as any).serviceCategory?.startsWith("ATELIER_")) {
+      if (appointmentDateLabel !== dateLabel)
+        throw new BadRequestException(Message.BAD_REQUEST);
+      const dayName = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Seoul",
+        weekday: "long",
+      }).format(date);
+      const atelierSlots: Record<string, string[]> = {
+        ATELIER_KANG_CUSTOM: ["14:00", "16:30"],
+        ATELIER_KANG_RESIZING: ["14:00", "16:30"],
+        ATELIER_AURUM_GEMOLOGY: ["10:00", "14:00", "17:00"],
+        ATELIER_AURUM_ASSAY: ["10:00", "14:00", "17:00"],
+        ATELIER_MILANO_RESTORATION: ["11:00", "14:00", "17:00"],
+        ATELIER_MILANO_POLISHING: ["11:00", "14:00", "17:00"],
+      };
+      const availableSlots = atelierSlots[(service as any).serviceCategory];
+      if (!availableSlots?.includes(timeLabel))
+        throw new BadRequestException(
+          "This atelier is not available at the selected time.",
+        );
+      const schedule: any = await this.scheduleModel
+        .findOne({
+          serviceId: (service as any)._id,
+          dayOfWeek: { $regex: new RegExp(`^${dayName}$`, "i") },
+          isWorking: true,
+        })
+        .lean()
+        .exec();
+      if (
+        !schedule ||
+        timeLabel < schedule.startTime ||
+        timeLabel >= schedule.endTime ||
+        (schedule.breakStartTime &&
+          schedule.breakEndTime &&
+          timeLabel >= schedule.breakStartTime &&
+          timeLabel < schedule.breakEndTime)
+      ) {
+        throw new BadRequestException(
+          "This atelier is not available at the selected time.",
+        );
+      }
+    }
     const servicePrice =
       Number((service as any).servicePrice) > 0
         ? Number((service as any).servicePrice)
@@ -145,7 +200,8 @@ export class ServiceBookingService {
     const bookingPrice = isRepair
       ? 45
       : servicePrice * (isPolishing ? selectedItems.length : 1);
-    const slotKey = `${input.serviceId}:${dateLabel}:${timeLabel}:${selectedTechnician.toLowerCase()}`;
+    const providerId = String((service as any).memberId);
+    const slotKey = `${providerId}:${dateLabel}:${timeLabel}`;
     const bookingReference = `HDJ-SVC-${new Types.ObjectId().toHexString().slice(-10).toUpperCase()}`;
     try {
       return await this.bookingModel.create({
@@ -183,11 +239,16 @@ export class ServiceBookingService {
       throw new BadRequestException(Message.BAD_REQUEST);
     const dayStart = new Date(`${input.date}T00:00:00+09:00`);
     const dayEnd = new Date(`${input.date}T23:59:59.999+09:00`);
+    const service: any = await this.serviceModel
+      .findOne({ _id: input.serviceId, serviceStatus: ServiceStatus.ACTIVE })
+      .select("memberId")
+      .lean()
+      .exec();
+    if (!service) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
     const rows = await this.bookingModel
       .find({
-        serviceId: new Types.ObjectId(input.serviceId),
+        providerId: service.memberId,
         bookingTime: { $gte: dayStart, $lte: dayEnd },
-        selectedTechnician: input.technician,
         bookingStatus: {
           $nin: [BookingStatus.CANCELLED, BookingStatus.REJECTED],
         },

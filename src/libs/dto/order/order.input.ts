@@ -1,5 +1,6 @@
+import { Type } from 'class-transformer';
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { ArrayMinSize, IsArray, IsInt, IsNotEmpty, IsOptional, IsPhoneNumber, Length, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsPhoneNumber, Length, Min, ValidateNested } from 'class-validator';
 import { OrderItemStatus, PaymentMethod, PaymentStatus } from '../../enums/order.enum';
 
 @InputType()
@@ -18,6 +19,8 @@ export class OrderItemInput {
 export class OrderInput {
 	@IsArray()
 	@ArrayMinSize(1)
+	@ValidateNested({ each: true })
+	@Type(() => OrderItemInput)
 	@Field(() => [OrderItemInput])
 	items!: OrderItemInput[];
 
@@ -31,6 +34,7 @@ export class OrderInput {
 	@Field(() => String)
 	deliveryPhone!: string;
 
+	@IsEnum(PaymentMethod)
 	@Field(() => PaymentMethod)
 	paymentMethod!: PaymentMethod;
 }
@@ -58,6 +62,7 @@ export class OrderItemUpdate {
 	@Field(() => String)
 	_id!: string;
 
+	@IsEnum(OrderItemStatus)
 	@Field(() => OrderItemStatus)
 	itemStatus!: OrderItemStatus;
 }
@@ -68,6 +73,7 @@ export class OrderAdminUpdate {
 	@Field(() => String)
 	_id!: string;
 
+	@IsEnum(PaymentStatus)
 	@Field(() => PaymentStatus)
 	paymentStatus!: PaymentStatus;
 }

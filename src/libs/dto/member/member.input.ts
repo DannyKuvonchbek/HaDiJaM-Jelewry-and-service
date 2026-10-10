@@ -24,6 +24,11 @@ export class MemberInput {
 	@Field(() => MemberType, { nullable: true })
 	memberType?: MemberType;
 
+	/** Seller interest only; seller privileges still require admin approval. */
+	@IsOptional()
+	@Field(() => Boolean, { nullable: true })
+	sellerIntent?: boolean;
+
 	@IsOptional()
 	@Field(() => MemberAuthType, { nullable: true })
 	memberAuthType?: MemberAuthType;

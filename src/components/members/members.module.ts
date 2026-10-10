@@ -1,3 +1,4 @@
+import { MemberPrivacyResolver } from './member-privacy.resolver';
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import MemberSchema from "../../schemas/Member.model";
@@ -15,7 +16,7 @@ import FollowSchema from "../../schemas/Follow.model";
     LikesModule,
     ViewsModule,
   ],
-  providers: [MemberResolver, MemberService],
+  providers: [MemberResolver, MemberService, MemberPrivacyResolver],
   exports: [MemberService],
 })
 export class MembersModule {}

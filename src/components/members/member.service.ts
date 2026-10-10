@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  UnauthorizedException,
   InternalServerErrorException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
@@ -40,6 +41,9 @@ export class MemberService {
     if (input.memberType === MemberType.ADMIN) {
       throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
     }
+    // Signup can record seller interest, but privileges are granted only after review.
+    input.sellerIntent = input.sellerIntent === true || input.memberType === MemberType.SELLER;
+    input.memberType = MemberType.USER;
     input.memberPassword = await this.authService.hashPassword(
       input.memberPassword,
     );
@@ -52,7 +56,7 @@ export class MemberService {
       }
       throw error;
     }
-    member.accessToken = await this.authService.createToken(member);
+
     return member;
   }
 
@@ -63,10 +67,10 @@ export class MemberService {
       .exec();
 
     if (!member || member.memberStatus === MemberStatus.DELETE) {
-      throw new InternalServerErrorException(Message.NO_MEMBER_NICK);
+      throw new UnauthorizedException("Invalid username or password.");
     }
     if (member.memberStatus === MemberStatus.BLOCK) {
-      throw new InternalServerErrorException(Message.BLOCKED_USER);
+      throw new UnauthorizedException("Invalid username or password.");
     }
     if (
       !(await this.authService.comparePasswords(
@@ -74,10 +78,10 @@ export class MemberService {
         member.memberPassword,
       ))
     ) {
-      throw new InternalServerErrorException(Message.WRONG_PASSWORD);
+      throw new UnauthorizedException("Invalid username or password.");
     }
 
-    member.accessToken = await this.authService.createToken(member);
+
     return member;
   }
 
@@ -117,7 +121,7 @@ export class MemberService {
     }
     if (!member) throw new InternalServerErrorException(Message.UPDATE_FAILED);
 
-    member.accessToken = await this.authService.createToken(member);
+    if (update.memberPassword) await this.authService.revokeMember(memberId);
     return member;
   }
 
@@ -272,6 +276,15 @@ export class MemberService {
   }
 
   public async updateMembersByAdmin(input: MemberUpdate): Promise<Member> {
+    if (input.memberType !== undefined) {
+      throw new BadRequestException('Roles are managed through seller approval and the local admin provisioning command.');
+    }
+    const existing: any = await this.memberModel.findById(shapeIntoMongoObjectId(input._id)).lean();
+    if (existing?.memberType === MemberType.ADMIN && input.memberStatus !== undefined && input.memberStatus !== MemberStatus.ACTIVE) {
+      // Public management never disables an administrator. This stronger invariant
+      // also prevents concurrent requests from removing the last active admin.
+      throw new BadRequestException('Administrator accounts are protected from blocking or deletion.');
+    }
     const update: Record<string, unknown> = { ...input };
     delete update._id;
     if (update.memberPassword)
@@ -288,6 +301,7 @@ export class MemberService {
       })
       .exec();
     if (!member) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+    if (update.memberPassword || (input.memberStatus !== undefined && input.memberStatus !== MemberStatus.ACTIVE)) await this.authService.revokeMember(String(input._id));
     return member;
   }
 

@@ -152,9 +152,10 @@ export class ProductService {
       throw new BadRequestException(Message.BAD_REQUEST);
     const update: Record<string, unknown> = { ...input };
     delete update._id;
-    if (input.productStatus === ProductStatus.SOLD) update.soldAt = new Date();
-    if (input.productStatus === ProductStatus.DELETE)
-      update.deletedAt = new Date();
+    // Sellers may edit listing details, but only administrators can change status.
+    delete update.productStatus;
+    delete update.soldAt;
+    delete update.deletedAt;
     const product = await this.productModel
       .findOneAndUpdate(
         { _id: input._id, memberId, productStatus: ProductStatus.ACTIVE },
@@ -163,16 +164,6 @@ export class ProductService {
       )
       .exec();
     if (!product) throw new InternalServerErrorException(Message.UPDATE_FAILED);
-    if (
-      input.productStatus === ProductStatus.SOLD ||
-      input.productStatus === ProductStatus.DELETE
-    ) {
-      await this.memberService.memberStatsEditor(
-        memberId,
-        "memberProducts",
-        -1,
-      );
-    }
     return product;
   }
 
@@ -310,31 +301,48 @@ export class ProductService {
   }
 
   public async updateProductByAdmin(input: ProductUpdate): Promise<Product> {
+    if (!Types.ObjectId.isValid(input._id))
+      throw new BadRequestException(Message.BAD_REQUEST);
     const update: Record<string, unknown> = { ...input };
     delete update._id;
-    if (input.productStatus === ProductStatus.SOLD) update.soldAt = new Date();
-    if (input.productStatus === ProductStatus.DELETE)
-      update.deletedAt = new Date();
-    const filter =
-      input.productStatus === ProductStatus.SOLD ||
-      input.productStatus === ProductStatus.DELETE
-        ? { _id: input._id, productStatus: ProductStatus.ACTIVE }
-        : { _id: input._id };
-    const product = await this.productModel
-      .findOneAndUpdate(filter, update, { new: true })
+    const nextStatus = input.productStatus;
+    if (!nextStatus) {
+      const updated = await this.productModel
+        .findByIdAndUpdate(input._id, update, { new: true })
+        .exec();
+      if (!updated) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+      return updated;
+    }
+
+    const current = await this.productModel.findById(input._id).exec();
+    if (!current) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+    if (current.productStatus === nextStatus) return current;
+
+    if (nextStatus === ProductStatus.SOLD) update.soldAt = new Date();
+    else update.soldAt = null;
+    if (nextStatus === ProductStatus.DELETE) update.deletedAt = new Date();
+    else update.deletedAt = null;
+
+    // Compare-and-set prevents concurrent admin actions from double-counting a listing.
+    const changed = await this.productModel
+      .findOneAndUpdate(
+        { _id: input._id, productStatus: current.productStatus },
+        update,
+        { new: true },
+      )
       .exec();
-    if (!product) throw new InternalServerErrorException(Message.UPDATE_FAILED);
-    if (
-      input.productStatus === ProductStatus.SOLD ||
-      input.productStatus === ProductStatus.DELETE
-    ) {
+    if (!changed) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+
+    const wasActive = current.productStatus === ProductStatus.ACTIVE;
+    const becomesActive = nextStatus === ProductStatus.ACTIVE;
+    if (wasActive !== becomesActive) {
       await this.memberService.memberStatsEditor(
-        String(product.memberId),
+        String(current.memberId),
         "memberProducts",
-        -1,
+        becomesActive ? 1 : -1,
       );
     }
-    return product;
+    return changed;
   }
 
   public async removeProductByAdmin(productId: string): Promise<Product> {

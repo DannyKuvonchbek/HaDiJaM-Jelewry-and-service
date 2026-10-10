@@ -4,7 +4,6 @@ import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { ComponentsModule } from './components/components.module';
 import { DatabaseModule } from './database/database.module';
-import { SocketModule } from './socket/socket.module';
 import { AppResolver } from './app.resolver';
 import { AppService } from './app.service';
 
@@ -13,13 +12,13 @@ import { AppService } from './app.service';
 		ConfigModule.forRoot({ isGlobal: true }),
 		GraphQLModule.forRoot<ApolloDriverConfig>({
 			driver: ApolloDriver,
+            context: ({ req, res }) => ({ req, res }),
 			playground: process.env.NODE_ENV !== 'production',
 			introspection: process.env.NODE_ENV !== 'production',
 			autoSchemaFile: true,
 		}),
 		ComponentsModule,
 		DatabaseModule,
-		SocketModule,
 	],
 	providers: [AppService, AppResolver],
 })

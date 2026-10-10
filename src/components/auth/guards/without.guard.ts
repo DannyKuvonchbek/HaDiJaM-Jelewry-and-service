@@ -13,7 +13,7 @@ export class WithoutGuard implements CanActivate {
 
 		if (authorization?.startsWith('Bearer ')) {
 			try {
-				request.authMember = await this.authService.verifyToken(authorization.slice(7));
+				request.authMember = await this.authService.getAuthenticatedMember(authorization.slice(7));
 			} catch {
 				request.authMember = null;
 			}

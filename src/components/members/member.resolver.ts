@@ -1,4 +1,8 @@
-import { Args, Mutation, Query, Resolver } from "@nestjs/graphql";
+import { Transform } from 'stream';
+import { randomUUID } from 'crypto';
+import { AuthService } from '../auth/auth.service';
+import { requireBrowserRequest, limitAuth, setRefresh } from '../auth/sessions/auth-security';
+import { Args, Mutation, Query, Resolver, Context } from "@nestjs/graphql";
 import { UseGuards } from "@nestjs/common";
 import { MemberService } from "./member.service";
 import { Member, Members } from "../../libs/dto/member/member";
@@ -18,7 +22,8 @@ import { MemberType } from "../../libs/enums/member.enum";
 import { GraphQLUpload, FileUpload } from "graphql-upload";
 import { createWriteStream, mkdirSync } from "fs";
 import { basename, resolve } from "path";
-import { randomUUID } from "crypto";
+import { pipeline } from "stream/promises";
+import { unlink } from "fs/promises";
 import {
   getSerialForImage,
   shapeIntoMongoObjectId,
@@ -29,18 +34,18 @@ import { ObjectId } from "bson";
 
 @Resolver()
 export class MemberResolver {
-  constructor(private readonly memberService: MemberService) {}
+  constructor(private readonly memberService: MemberService, private readonly authService: AuthService) {}
 
   @Mutation(() => Member)
-  public async signup(@Args("input") input: MemberInput): Promise<Member> {
-    console.log("input", input);
-    return await this.memberService.signup(input);
+  public async signup(@Args("input") input: MemberInput, @Context() context: any): Promise<Member> {
+    requireBrowserRequest(context.req); limitAuth(context.req, "signup", 10);
+    return this.attachSession(await this.memberService.signup(input), context);
   }
 
   @Mutation(() => Member)
-  public async login(@Args("input") input: LoginInput): Promise<Member> {
-    console.log("Mutation: login");
-    return await this.memberService.login(input);
+  public async login(@Args("input") input: LoginInput, @Context() context: any): Promise<Member> {
+    requireBrowserRequest(context.req); limitAuth(context.req, "login");
+    return this.attachSession(await this.memberService.login(input), context);
   }
 
   @UseGuards(AuthGuard)
@@ -48,8 +53,6 @@ export class MemberResolver {
   public async checkAuth(
     @AuthMember("memberNick") memberNick: string,
   ): Promise<string> {
-    console.log("Query: checkAuth");
-    console.log("memberNick: memberNick");
     return await `Hi ${memberNick}`;
   }
 
@@ -59,8 +62,6 @@ export class MemberResolver {
   public async checkAuthRoles(
     @AuthMember() authMember: Member,
   ): Promise<string> {
-    console.log("Query: checkAuthRoles");
-    console.log("memberNick: memberNick");
     return await `Hi ${authMember.memberNick}, you are ${authMember.memberType} (memberId: ${authMember._id})`;
   }
 
@@ -70,7 +71,6 @@ export class MemberResolver {
     @Args("input") input: MemberUpdate,
     @AuthMember("_id") memberId: ObjectId,
   ): Promise<Member> {
-    console.log("Mutation: updateMember");
     delete input._id;
     return await this.memberService.updateMember(String(memberId), input);
   }
@@ -81,9 +81,8 @@ export class MemberResolver {
     @Args("memberId") input: string,
     @AuthMember("_id") memberId: ObjectId,
   ): Promise<Member> {
-    console.log("Query: getMember");
     const targetId = shapeIntoMongoObjectId(input);
-    return this.memberService.getMember(String(memberId), String(targetId));
+    return this.memberService.getMember(memberId ? String(memberId) : "", String(targetId));
   }
 
   @UseGuards(AuthGuard)
@@ -128,21 +127,16 @@ export class MemberResolver {
     @Args({ name: "file", type: () => GraphQLUpload })
     file: unknown,
     @Args("target") target: string,
+    @AuthMember("_id") ownerId?: string,
   ): Promise<string> {
     const upload = (await file) as FileUpload;
     if (!validMimeTypes.includes(upload.mimetype))
       throw new Error(Message.PROVIDE_ALLOWED_FORMAT);
     const targetPath = this.getUploadTarget(target);
     mkdirSync(targetPath, { recursive: true });
-    const filename = getSerialForImage(upload.filename);
+    const filename = this.uploadFilename(upload, target, ownerId);
     const output = resolve(targetPath, filename);
-    await new Promise<void>((resolvePromise, reject) => {
-      upload
-        .createReadStream()
-        .pipe(createWriteStream(output))
-        .on("finish", resolvePromise)
-        .on("error", reject);
-    });
+    await this.writeUpload(upload, output, target === "member" ? 8 * 1024 * 1024 : 25 * 1024 * 1024);
     return `uploads/${target}/${filename}`;
   }
 
@@ -152,6 +146,7 @@ export class MemberResolver {
     @Args("files", { type: () => [GraphQLUpload] })
     files: Promise<FileUpload>[],
     @Args("target") target: string,
+    @AuthMember("_id") ownerId?: string,
   ): Promise<string[]> {
     const targetPath = this.getUploadTarget(target);
     mkdirSync(targetPath, { recursive: true });
@@ -160,18 +155,52 @@ export class MemberResolver {
         const upload = await file;
         if (!validMimeTypes.includes(upload.mimetype))
           throw new Error(Message.PROVIDE_ALLOWED_FORMAT);
-        const filename = getSerialForImage(upload.filename);
+        const filename = this.uploadFilename(upload, target, ownerId);
         const output = resolve(targetPath, filename);
-        await new Promise<void>((resolvePromise, reject) => {
-          upload
-            .createReadStream()
-            .pipe(createWriteStream(output))
-            .on("finish", resolvePromise)
-            .on("error", reject);
-        });
+        await this.writeUpload(upload, output, target === "member" ? 8 * 1024 * 1024 : 25 * 1024 * 1024);
         return `uploads/${target}/${filename}`;
       }),
     );
+  }
+
+  private async attachSession(member: Member, context: any): Promise<Member> {
+    const session = await this.authService.createSession(member);
+    setRefresh(context.res, session.refreshToken, session.expiresAt);
+    member.accessToken = session.accessToken;
+    context.req.authMember = member;
+    return member;
+  }
+
+  private async writeUpload(upload: FileUpload, output: string, maxBytes: number): Promise<void> {
+    try {
+      let length=0, header=Buffer.alloc(0), validated=false;
+      const check=(bytes:Buffer)=>{
+        const actual = bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? 'image/png'
+          : bytes[0]===255&&bytes[1]===216&&bytes[2]===255 ? 'image/jpeg'
+          : /^GIF8[79]a/.test(bytes.subarray(0,6).toString()) ? 'image/gif'
+          : bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP' ? 'image/webp'
+          : bytes.subarray(4,8).toString()==='ftyp'&&/(heic|heix|hevc|hevx|mif1|msf1)/.test(bytes.subarray(8,32).toString()) ? upload.mimetype : null;
+        if(actual!==upload.mimetype)throw new Error('Image contents do not match the declared format.');
+      };
+      const validate=new Transform({transform(chunk,_encoding,done){
+        try{length+=chunk.length;if(length>maxBytes)throw new Error('Image is too large.');
+          if(!validated){header=Buffer.concat([header,chunk]);if(header.length<32)return done();check(header);validated=true;this.push(header);header=Buffer.alloc(0);}
+          else this.push(chunk);done();
+        }catch(error){done(error as Error);}
+      },flush(done){try{if(!validated){check(header);this.push(header);}done();}catch(error){done(error as Error);}}});
+      await pipeline(upload.createReadStream(), validate, createWriteStream(output, {flags:'wx'}));
+    } catch (error) {
+      // Remove incomplete files after source, size-limit, or disk errors.
+      await unlink(output).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private uploadFilename(upload: FileUpload, target: string, ownerId?: string): string {
+    const extensions: Record<string,string> = {'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','image/gif':'.gif','image/heic':'.heic','image/heif':'.heif'};
+    const privateTarget=['atelier','service-bookings'].includes(target);
+    if(privateTarget && !ownerId)throw new Error('Please sign in.');
+    return `${privateTarget ? String(ownerId)+'-' : ''}${randomUUID()}${extensions[upload.mimetype]}`;
   }
 
   private getUploadTarget(target: string): string {

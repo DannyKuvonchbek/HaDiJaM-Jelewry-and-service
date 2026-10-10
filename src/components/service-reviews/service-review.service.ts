@@ -21,13 +21,15 @@ export class ServiceReviewService {
 		const booking = await this.bookingModel.findOne({
 			_id: input.bookingId,
 			serviceId: input.serviceId,
-			$or: [{ customerId: memberId }, { providerId: memberId }],
+			customerId: memberId,
 		}).exec();
 		if (!booking) throw new InternalServerErrorException(Message.NOT_ALLOWED_REQUEST);
 		if (booking.bookingStatus !== BookingStatus.COMPLETED) {
 			throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
 		}
 		try {
+			const existing = await this.reviewModel.exists({ bookingId: input.bookingId });
+			if (existing) throw new BadRequestException('This completed appointment already has a review.');
 			return await this.reviewModel.create({ ...input, memberId });
 		} catch {
 			throw new BadRequestException(Message.CREATE_FAILED);
@@ -45,7 +47,10 @@ export class ServiceReviewService {
 	public async getServiceReviews(serviceId: string, input: ServiceReviewsInquiry): Promise<ServiceReviews> {
 		if (!Types.ObjectId.isValid(serviceId)) throw new BadRequestException(Message.BAD_REQUEST);
 		const [result] = await this.reviewModel.aggregate([
-			{ $match: { serviceId: new Types.ObjectId(serviceId) } },
+			{ $match: { serviceId: new Types.ObjectId(serviceId), moderationStatus: { $ne: 'HIDDEN' } } },
+			{ $lookup: { from: 'members', localField: 'memberId', foreignField: '_id', as: 'memberData' } },
+			{ $unwind: { path: '$memberData', preserveNullAndEmptyArrays: true } },
+			{ $project: { 'memberData._id': 1, 'memberData.memberNick': 1, 'memberData.memberImage': 1, serviceId: 1, bookingId: 1, memberId: 1, rating: 1, reviewContent: 1, reviewImages: 1, createdAt: 1, updatedAt: 1 } },
 			{ $sort: { createdAt: input.direction ?? Direction.DESC } },
 			{ $facet: { list: [{ $skip: (input.page - 1) * input.limit }, { $limit: input.limit }], metaCounter: [{ $count: 'total' }] } },
 		]);

@@ -20,7 +20,7 @@ import { OrderService } from "./order.service";
 export class OrderResolver {
   constructor(private readonly orderService: OrderService) {}
 
-  @Roles(MemberType.USER)
+  @Roles(MemberType.USER, MemberType.SELLER, MemberType.ADMIN)
   @UseGuards(RolesGuard)
   @Mutation(() => Order)
   public async createOrder(

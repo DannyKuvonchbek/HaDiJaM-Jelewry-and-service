@@ -11,6 +11,9 @@ export class Member {
 	@Field(() => MemberType)
 	memberType!: MemberType;
 
+	@Field(() => Boolean, { nullable: true })
+	sellerIntent?: boolean;
+
 	@Field(() => MemberStatus)
 	memberStatus!: MemberStatus;
 
