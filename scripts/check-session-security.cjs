@@ -15,6 +15,7 @@ async function main(){
   process.env.NODE_ENV='test';process.env.MONGODB_URI=repl.getUri('sessions-test');process.env.JWT_SECRET='isolated-security-test-key-not-for-production';process.env.SMS_ENABLED='false';process.env.PRIVATE_DOCUMENT_DIR=privateDir;
   const {NestFactory}=require('@nestjs/core'),{AppModule}=require('../dist/app.module');
   app=await NestFactory.create(AppModule,{logger:false,abortOnError:false});
+  app.use('/graphql',require('graphql-upload').graphqlUploadExpress({maxFileSize:25000000,maxFiles:10}));
   app.useWebSocketAdapter(new(require('@nestjs/platform-ws').WsAdapter)(app));
   app.useGlobalPipes(new(require('@nestjs/common').ValidationPipe)({transform:true,whitelist:true}));
   app.enableCors({origin:allowedOrigins(),credentials:true,allowedHeaders:['Content-Type','Authorization','X-Hadijam-CSRF']});
@@ -33,6 +34,16 @@ async function main(){
   };
   const rest=async(path,cookie,accessToken,customHeaders=headers)=>fetch(base+'/auth/'+path,{method:path==='session'?'GET':'POST',headers:{...customHeaders,...(cookie?{Cookie:cookie}:{}),...(accessToken?{Authorization:'Bearer '+accessToken}:{})}});
   const first=await login('sessionUser'),second=await login('sessionUser');
+  const uploadForm=new FormData();
+  uploadForm.append('operations',JSON.stringify({query:'mutation($file:Upload!,$target:String!){imageUploader(file:$file,target:$target)}',variables:{file:null,target:'member'}}));
+  uploadForm.append('map',JSON.stringify({'0':['variables.file']}));
+  uploadForm.append('0',new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')],{type:'image/png'}),'avatar.png');
+  const uploadResponse=await fetch(base+'/graphql',{method:'POST',headers:{Origin:headers.Origin,'X-Hadijam-CSRF':'1','Apollo-Require-Preflight':'true',Authorization:'Bearer '+first.accessToken},body:uploadForm});
+  const uploadResult=await uploadResponse.json();assert.equal(uploadResult.errors,undefined,JSON.stringify(uploadResult.errors));
+  assert.ok(uploadResult.data.imageUploader.startsWith('uploads/member/'));
+  fs.rmSync(path.resolve(uploadResult.data.imageUploader),{force:true});
+  const invalidProfile=await fetch(base+'/graphql',{method:'POST',headers:{...headers,Authorization:'Bearer '+first.accessToken},body:JSON.stringify({query:'mutation($input:MemberUpdate!){updateMember(input:$input){_id}}',variables:{input:{_id:String(user._id),memberFullName:''}}})});
+  const invalidProfileResult=await invalidProfile.json();assert.match(invalidProfileResult.errors[0].message,/memberFullName/);
   const jwt=new JwtService({secret:process.env.JWT_SECRET}),claims=jwt.decode(first.accessToken);
   assert.deepEqual(Object.keys(claims).sort(),['aud','exp','iat','iss','sid','sub']);assert.equal(claims.exp-claims.iat,240);
   assert.notEqual(claims.sid,jwt.decode(second.accessToken).sid);

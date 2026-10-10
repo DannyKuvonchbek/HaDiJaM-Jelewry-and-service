@@ -36,7 +36,7 @@ Parol o‘zgarishi, admin bloklashi/o‘chirishi barcha sessiyalarni bekor qilad
 2. Kuchli, tasodifiy kamida 32 belgili `JWT_SECRET` o‘rnating. Uni log yoki Git’ga kiritmang. Secret almashishi barcha sessiyalarni yaroqsiz qiladi.
 3. `NODE_ENV=production`, tegishli Mongo URI, frontend API/WebSocket environment qiymatlarini sozlang.
 4. Frontend `https://hadijam.com` yoki `https://www.hadijam.com`; API `https://api.hadijam.com`. HTTPS va WebSocket reverse proxy kerak.
-5. Node API productionda `127.0.0.1:9702` tinglaydi, trust proxy=1. Faqat ishonchli bitta reverse proxy tashqi trafikni qabul qilsin va forwarded headerlarni almashtirsin.
+5. Node API productionda `127.0.0.1:2002` tinglaydi, trust proxy=1. Faqat ishonchli bitta reverse proxy tashqi trafikni qabul qilsin va forwarded headerlarni almashtirsin.
 6. Hozir **bitta PM2 API worker** ishlating: rate limiter process xotirasida. Ko‘p worker/server oldidan umumiy limiter yoki proxy limiter qo‘shing. Har restart limiter sanog‘ini tiklaydi.
 7. `uploads/atelier` va `uploads/service-bookings` fayllarini Nginx orqali public bermang. Private hujjat storage’ni ham public alias qilmaslik kerak.
 8. Mongo sessiya TTL indexlari yaratilganini tekshiring. Backup hamda filesystem ruxsatlarini sozlang.

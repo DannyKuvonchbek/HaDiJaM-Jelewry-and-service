@@ -2,6 +2,9 @@ import { PrivateMediaController } from './sessions/private-media.controller';
 import { SessionSchema } from './sessions/session.schema';
 import { SessionService } from './sessions/session.service';
 import { SessionController } from './sessions/session.controller';
+import { OAuthController } from './oauth/oauth.controller';
+import { OAuthService } from './oauth/oauth.service';
+import { OAuthTicketSchema } from './oauth/oauth-ticket.schema';
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { JwtModule } from "@nestjs/jwt";
@@ -19,6 +22,7 @@ import MemberSchema from "../../schemas/Member.model";
       { name: "AuthRecord", schema: AuthRecordSchema },
       { name: "Member", schema: MemberSchema },
       { name: "AuthSession", schema: SessionSchema },
+      { name: "OAuthTicket", schema: OAuthTicketSchema },
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -30,8 +34,8 @@ import MemberSchema from "../../schemas/Member.model";
       },
     }),
   ],
-  controllers: [SessionController, PrivateMediaController],
-  providers: [SessionService, AuthService, AuthGuard, WithoutGuard, RolesGuard],
+  controllers: [SessionController, PrivateMediaController, OAuthController],
+  providers: [SessionService, AuthService, OAuthService, AuthGuard, WithoutGuard, RolesGuard],
   exports: [SessionService, AuthService, AuthGuard, WithoutGuard, RolesGuard],
 })
 export class AuthModule {}

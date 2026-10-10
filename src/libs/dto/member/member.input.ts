@@ -7,9 +7,14 @@ import { availableSellerSorts, availableMembersSorts } from '../../config';
 @InputType()
 export class MemberInput {
 	@IsNotEmpty()
-	@Length(3, 12)
+	@Length(3, 100)
 	@Field(() => String)
 	memberNick!: string;
+
+	@IsOptional()
+	@Length(3, 100)
+	@Field(() => String, { nullable: true })
+	memberFullName?: string;
 
 	@IsNotEmpty()
 	@Length(5, 72)
@@ -37,7 +42,7 @@ export class MemberInput {
 @InputType()
 export class LoginInput {
 	@IsNotEmpty()
-	@Length(3, 12)
+	@Length(3, 100)
 	@Field(() => String)
 	memberNick!: string;
 

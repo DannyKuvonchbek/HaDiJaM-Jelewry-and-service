@@ -22,7 +22,7 @@ const MemberSchema = new Schema(
     memberPhone: {
       type: String,
       index: { unique: true, sparse: true },
-      required: true,
+      required: false,
     },
     memberNick: {
       type: String,
@@ -31,12 +31,15 @@ const MemberSchema = new Schema(
     },
     memberPassword: {
       type: String,
-      required: true,
+      required: false,
       select: false,
     },
 
     sellerApprovedAt: { type: Date },
     memberFullName: { type: String },
+    memberEmail: { type: String, lowercase: true, trim: true, sparse: true },
+    oauthGoogleId: { type: String, unique: true, sparse: true },
+    oauthFacebookId: { type: String, unique: true, sparse: true },
 
     memberImage: { type: String, default: "" },
     memberAddress: { type: String },

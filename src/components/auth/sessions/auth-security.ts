@@ -4,7 +4,7 @@ export function allowedOrigins(): string[] {
   const production = ["https://hadijam.com", "https://www.hadijam.com"];
   return process.env.NODE_ENV === "production"
     ? production
-    : [...production, "http://localhost:1017", "http://127.0.0.1:1017"];
+    : [...production, "http://localhost:1017", "http://127.0.0.1:1017", "http://localhost:3017", "http://127.0.0.1:3017"];
 }
 export function requireBrowserRequest(req: Request): void {
   if (

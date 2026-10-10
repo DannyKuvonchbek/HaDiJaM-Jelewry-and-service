@@ -43,6 +43,7 @@ export class MemberService {
     }
     // Signup can record seller interest, but privileges are granted only after review.
     input.sellerIntent = input.sellerIntent === true || input.memberType === MemberType.SELLER;
+    input.memberFullName = input.memberFullName?.trim() || input.memberNick.trim();
     input.memberType = MemberType.USER;
     input.memberPassword = await this.authService.hashPassword(
       input.memberPassword,
@@ -66,7 +67,7 @@ export class MemberService {
       .select("+memberPassword")
       .exec();
 
-    if (!member || member.memberStatus === MemberStatus.DELETE) {
+    if (!member || !member.memberPassword || member.memberStatus === MemberStatus.DELETE) {
       throw new UnauthorizedException("Invalid username or password.");
     }
     if (member.memberStatus === MemberStatus.BLOCK) {

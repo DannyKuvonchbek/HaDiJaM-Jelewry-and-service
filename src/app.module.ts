@@ -16,6 +16,15 @@ import { AppService } from './app.service';
 			playground: process.env.NODE_ENV !== 'production',
 			introspection: process.env.NODE_ENV !== 'production',
 			autoSchemaFile: true,
+            formatError: (formatted) => {
+                // Nest validation errors expose their details under originalError,
+                // while the top-level message otherwise says only "Bad Request Exception".
+                const original = formatted.extensions?.originalError as { statusCode?: number; message?: string | string[] } | undefined;
+                if (original?.statusCode === 400 && Array.isArray(original.message)) {
+                    return { ...formatted, message: original.message.filter(value => typeof value === 'string').join('; ') || formatted.message };
+                }
+                return formatted;
+            },
 		}),
 		ComponentsModule,
 		DatabaseModule,

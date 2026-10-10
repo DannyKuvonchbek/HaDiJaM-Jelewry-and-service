@@ -74,7 +74,7 @@ No collection rename script, data backfill, dry run, production index inspection
 - Service bookings currently classify services from title/category text, hardcode jewelry technicians/items and Asia/Seoul time slots, and compute prices server-side (repair fixed at 45). These rules need redesign for Petoria.
 - Cancellation/rejection unsets service booking `slotKey`; concurrency and state transitions need integration tests. The key includes service ID, so cross-service technician contention is not globally prevented.
 - Salon reservations and service bookings are separate persistence and API domains; do not silently equate a luxury salon suite with a pet grooming appointment.
-- Bootstrap uses global transforming/whitelisting validation, credentialed reflected-origin CORS, upload limits of 25,000,000 bytes/10 files, `/uploads` static serving, and default port 9702. Verify target deployment settings.
+- Bootstrap uses global transforming/whitelisting validation, credentialed reflected-origin CORS, upload limits of 25,000,000 bytes/10 files, `/uploads` static serving, and default port 2002. Verify target deployment settings.
 - `MONGODB_URI` falls back to `MONGO_URL`; credentials were not inspected.
 - HEIC/HEIF are allowed MIME values; browser display/conversion support remains unverified.
 
