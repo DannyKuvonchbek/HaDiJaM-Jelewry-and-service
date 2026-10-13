@@ -14,8 +14,14 @@ import {
 export class SellerApplicationInput {
   @IsString() @Length(2, 150) @Field() businessName!: string;
   @IsString() @Length(5, 500) @Field() businessAddress!: string;
-  @IsMongoId() @Field() idDocumentId!: string;
-  @IsMongoId() @Field() businessDocumentId!: string;
+  @IsOptional()
+  @IsMongoId()
+  @Field(() => String, { nullable: true })
+  idDocumentId?: string;
+  @IsOptional()
+  @IsMongoId()
+  @Field(() => String, { nullable: true })
+  businessDocumentId?: string;
 }
 @InputType()
 export class SellerReviewInput {
@@ -45,8 +51,8 @@ export class SellerApplication {
   @Field() memberId!: string;
   @Field() businessName!: string;
   @Field() businessAddress!: string;
-  @Field() idDocumentId!: string;
-  @Field() businessDocumentId!: string;
+  @Field(() => String, { nullable: true }) idDocumentId?: string;
+  @Field(() => String, { nullable: true }) businessDocumentId?: string;
   @Field() status!: string;
   @Field(() => Int) revision!: number;
   @Field({ nullable: true }) rejectionReason?: string;

@@ -29,3 +29,7 @@ Verified findings and remaining checks: [docs/SECURITY_AUDIT.md](docs/SECURITY_A
 Use Node.js 20 or newer. Configure a MongoDB Atlas or replica-set `MONGODB_URI`, a cryptographically random `JWT_SECRET` of at least 32 characters, `NODE_ENV=production`, and `PORT=2002`. Production CORS and browser-session checks currently allow only `https://hadijam.com` and `https://www.hadijam.com`; update `src/components/auth/sessions/auth-security.ts` before using a different frontend domain. Put the API behind an HTTPS reverse proxy and forward to `127.0.0.1:2002`.
 
 Run `npm ci`, `npm run build`, then `npm run start:prod`. Keep `PRIVATE_DOCUMENT_DIR` on a persistent private volume outside `uploads/`; back up that volume and MongoDB. Public uploads also need persistent storage or a durable object store. The authentication rate limiter is process-local, so run one API process unless the limiter is moved to shared storage. SMS is optional and remains disabled without its gateway configuration. `AI_API_KEY` is only needed for provider-backed admin product analysis; the public catalog concierge works from site data without an AI provider.
+
+Local development: backend `http://localhost:1997` (NODE_ENV=development); production remains port 2002. Changing ports does not change the MongoDB database.
+
+Port mapping: local frontend 1000/backend 1997; production frontend 1017/backend 2002 behind the existing HTTPS proxy. Development CORS allows localhost:1000 and 127.0.0.1:1000.

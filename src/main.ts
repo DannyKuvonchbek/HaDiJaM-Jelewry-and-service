@@ -67,7 +67,7 @@ async function bootstrap() {
   if (process.env.NODE_ENV === "production")
     app.getHttpAdapter().getInstance().set("trust proxy", 1);
   await app.listen(
-    process.env.PORT ?? 2002,
+    process.env.PORT ?? (process.env.NODE_ENV === "production" ? 2002 : 1997),
     process.env.NODE_ENV === "production" ? "127.0.0.1" : "0.0.0.0",
   );
 }

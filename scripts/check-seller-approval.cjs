@@ -21,6 +21,7 @@ async function main() {
   });
   let app, gateway;
   try {
+    process.env.NODE_ENV = "test";
     process.env.MONGODB_URI = repl.getUri("seller-approval-test");
     process.env.JWT_SECRET = "isolated-integration-test-secret-only";
     process.env.SMS_ENABLED = "false";
@@ -74,7 +75,7 @@ async function main() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Origin": "http://localhost:1017",
+          "Origin": "http://localhost:1000",
           "X-Hadijam-CSRF": "1",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
@@ -504,6 +505,41 @@ async function main() {
         .model("AdminAudit")
         .countDocuments({ adminId: adminDoc._id })) >= 3,
     );
+    // Documents are optional and the backend owns the delayed transition.
+    process.env.SMS_ENABLED = "false";
+    const automaticUser = (await ok(signup, {input: {...userInput, memberNick: "autoSeller", memberPhone: "01087654321"}})).signup;
+    const automaticInput = {businessName: "Automatic Atelier", businessAddress: "Seoul automatic address"};
+    assert.ok((await gql(submit, {input: {...automaticInput, idDocumentId: doc1.documentId}}, automaticUser.accessToken)).errors);
+    const automaticStart = Date.now();
+    const automaticSubmissions = await Promise.all([ok(submit, {input: automaticInput}, automaticUser.accessToken), ok(submit, {input: automaticInput}, automaticUser.accessToken)]);
+    const automaticId = automaticSubmissions[0].submitSellerApplication._id;
+    assert.equal(automaticId, automaticSubmissions[1].submitSellerApplication._id);
+    assert.equal(automaticSubmissions[0].submitSellerApplication.status, "PENDING");
+    assert.equal((await members.findById(automaticUser._id)).memberType, "USER");
+    const governance = app.get(require("../dist/components/governance/governance.service").GovernanceService);
+    await assert.rejects(governance.review(automaticUser._id, {applicationId: automaticId, revision: 1, decision: "APPROVED"}, true), /not due/);
+    governance.onModuleDestroy(); // Simulates a worker restart while an application is pending.
+    await new Promise(resolve => setTimeout(resolve, 5100));
+    assert.equal((await members.findById(automaticUser._id)).memberType, "USER");
+    await governance.onModuleInit();
+    let automaticApplication;
+    for(let attempt=0;attempt<30;attempt++) {
+      automaticApplication = await connection.model("SellerApplication").findById(automaticId).lean();
+      if(automaticApplication.status === "APPROVED")break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.equal(automaticApplication.status, "APPROVED");
+    assert.ok(new Date(automaticApplication.reviewedAt).getTime() - automaticStart >= 5000);
+    assert.equal(automaticApplication.reviewedBy, null);
+    assert.equal((await members.findById(automaticUser._id)).memberType, "SELLER");
+    const automaticInbox = (await ok(inbox, {}, automaticUser.accessToken)).getMyNotifications;
+    assert.equal(automaticInbox.list.filter(item=>item.notificationTitle === "Seller application approved").length, 1);
+    assert.ok(automaticInbox.list.some(item=>item.notificationDesc.includes("Your seller documents have been successfully approved")));
+    await ok(product, {input: productInput}, automaticUser.accessToken); // Original token now has seller privileges.
+    await new Promise(resolve => setTimeout(resolve, 700));
+    assert.equal(await connection.model("SmsJob").countDocuments({receiverId: automaticUser._id}), 1);
+    assert.equal(await connection.model("AdminAudit").countDocuments({targetId: automaticId, action: "SELLER_AUTO_APPROVED", actorType: "SYSTEM"}), 1);
+    console.log("PASS: optional documents, 5-second minimum delay, restart recovery, original-session seller privileges, one success message/SMS job/system audit.");
     console.log(
       "PASS: isolated replica-set GraphQL/HTTP tests: user/seller/admin auth, private uploads, size/type/ownership, parallel submit/approve, inbox, role activation, protected admins, reject/resubmit revisions, SMS disabled/retry/success/failure, admin transitions and audits.",
     );

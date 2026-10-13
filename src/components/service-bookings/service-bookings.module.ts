@@ -4,12 +4,14 @@ import ServiceBookingSchema from "../../schemas/ServiceBooking.model";
 import ServiceSchema from "../../schemas/Service.model";
 import ServiceScheduleSchema from "../../schemas/ServiceSchedule.model";
 import { AuthModule } from "../auth/auth.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { ServiceBookingResolver } from "./service-booking.resolver";
 import { ServiceBookingService } from "./service-booking.service";
 
 @Module({
   imports: [
     AuthModule,
+    NotificationsModule,
     MongooseModule.forFeature([
       { name: "ServiceBooking", schema: ServiceBookingSchema },
       { name: "Service", schema: ServiceSchema },

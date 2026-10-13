@@ -28,8 +28,8 @@ export class OAuthService {
     };
   }
 
-  apiOrigin() { return (process.env.PUBLIC_API_ORIGIN || (process.env.NODE_ENV === "production" ? "https://hadijam.com" : "http://localhost:2002")).replace(/\/$/, ""); }
-  webOrigin() { return (process.env.PUBLIC_WEB_ORIGIN || (process.env.NODE_ENV === "production" ? "https://www.hadijam.com" : "http://localhost:3017")).replace(/\/$/, ""); }
+  apiOrigin() { return (process.env.PUBLIC_API_ORIGIN || (process.env.NODE_ENV === "production" ? "https://hadijam.com" : "http://localhost:1997")).replace(/\/$/, ""); }
+  webOrigin() { return (process.env.PUBLIC_WEB_ORIGIN || (process.env.NODE_ENV === "production" ? "https://www.hadijam.com" : "http://localhost:1000")).replace(/\/$/, ""); }
   safeNext(value?: string) { return value && value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") ? value : "/"; }
   hasConfig(provider: Provider) { const config = this.config(provider); return Boolean(config.clientId && config.clientSecret); }
 

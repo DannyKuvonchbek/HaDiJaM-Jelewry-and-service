@@ -5,8 +5,8 @@ export const SellerApplicationSchema = new Schema(
     memberId: { type: oid, required: true, unique: true, ref: "Member" },
     businessName: { type: String, required: true },
     businessAddress: { type: String, required: true },
-    idDocumentId: { type: oid, required: true },
-    businessDocumentId: { type: oid, required: true },
+    idDocumentId: { type: oid },
+    businessDocumentId: { type: oid },
     status: {
       type: String,
       enum: ["PENDING", "APPROVED", "REJECTED"],
@@ -14,6 +14,7 @@ export const SellerApplicationSchema = new Schema(
       index: true,
     },
     revision: { type: Number, default: 1 },
+    autoApproveAt: { type: Date, index: true },
     reviewedBy: { type: oid },
     reviewedAt: Date,
     rejectionReason: String,
@@ -52,7 +53,8 @@ export const SmsJobSchema = new Schema(
 );
 export const AuditSchema = new Schema(
   {
-    adminId: { type: oid, required: true },
+    adminId: { type: oid },
+    actorType: { type: String, enum: ["ADMIN", "SYSTEM"], default: "ADMIN" },
     action: String,
     targetId: String,
     outcome: { type: String, default: "SUCCEEDED" },

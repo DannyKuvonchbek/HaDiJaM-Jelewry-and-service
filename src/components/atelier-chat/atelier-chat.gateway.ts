@@ -43,11 +43,7 @@ export class AtelierChatGateway implements OnGatewayConnection, OnGatewayDisconn
 		if (!session) { this.send(client, 'auth:error', { message: 'Sign in to use this private conversation.' }); return; }
 		try { session.member = await this.auth.getAuthenticatedMember(session.token); }
     catch { this.send(client, "auth:error", { message: "Please reconnect your session." }); client.close(); return; }
-    const now = new Date();
-		const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', weekday: 'short', hour: '2-digit', hour12: false }).formatToParts(now);
-		const weekday = parts.find((part) => part.type === 'weekday')?.value;
-		const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
-		if (!['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday ?? '') || hour < 9 || hour >= 20) { this.send(client, 'atelier:error', { message: 'Our atelier chat is available Monday to Friday, 9:00 AM–8:00 PM KST. Please reconnect during our next business hours.' }); return; }
+
 		try {
 			const saved = await this.chat.saveMessage({ atelier: session.atelier, customerId: session.customerId, sender: session.member, owner: session.owner, messageContent: String(body?.messageContent ?? ''), attachments: Array.isArray(body?.attachments) ? body.attachments : [] });
 			const packet = { ...saved.toObject(), _id: String(saved._id), senderId: String(saved.senderId), recipientId: String(saved.recipientId), customerId: session.customerId };

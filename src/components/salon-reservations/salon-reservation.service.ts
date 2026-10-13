@@ -4,10 +4,14 @@ import { randomBytes } from 'crypto';
 import { Model, Types } from 'mongoose';
 import { SalonReservation } from '../../libs/dto/salon-reservation/salon-reservation';
 import { SalonReservationInput } from '../../libs/dto/salon-reservation/salon-reservation.input';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class SalonReservationService {
-  constructor(@InjectModel('SalonReservation') private readonly reservationModel: Model<SalonReservation>) {}
+  private readonly logger = new Logger(SalonReservationService.name);
+  constructor(private readonly notifications: NotificationsService, private readonly notificationGateway: NotificationsGateway, @InjectModel('SalonReservation') private readonly reservationModel: Model<SalonReservation>) {}
 
   async listForCustomer(customerId: string): Promise<SalonReservation[]> {
     return this.reservationModel
@@ -36,12 +40,21 @@ export class SalonReservationService {
     });
     if (slotTaken) throw new ConflictException('This salon suite time slot is no longer available.');
     const reference = `HDJ-SAL-${randomBytes(3).toString('hex').toUpperCase()}`;
-    return this.reservationModel.create({
+    const reservation = await this.reservationModel.create({
       ...input,
       customerId: new Types.ObjectId(customerId),
       reservationReference: reference,
       reservationStatus: 'REQUESTED',
     });
+    try {
+      const notification = await this.notifications.createForMember({
+        memberId: customerId, group: 'SALON_RESERVATION',
+        title: 'VIP suite reservation request received',
+        description: `Your request ${reference} for ${input.suiteId} was received and is awaiting confirmation.`,
+      });
+      await this.notificationGateway.emitMember(customerId, notification);
+    } catch { this.logger.error('VIP reservation saved, but its notification could not be delivered.'); }
+    return reservation;
   }
 
   async deletePastReservation(customerId: string, reservationId: string): Promise<boolean> {

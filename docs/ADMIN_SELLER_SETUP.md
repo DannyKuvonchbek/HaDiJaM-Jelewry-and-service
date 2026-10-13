@@ -1,3 +1,5 @@
+> Updated 2026-10-13: seller documents are optional and applications activate automatically after five seconds. See [SELLER_AUTO_APPROVAL.md](SELLER_AUTO_APPROVAL.md). Manual review instructions below remain available for admin management.
+
 # Admin va seller tasdiqlash tizimini ishga tushirish
 
 ## Talablar

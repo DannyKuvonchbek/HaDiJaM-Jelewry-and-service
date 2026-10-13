@@ -14,10 +14,10 @@ export class AtelierChatService {
 		@InjectModel('Member') private readonly memberModel: Model<any>,
 	) {}
 
-	public isOwner(member: any): boolean { return member.memberType === MemberType.SELLER && String(member.memberNick).toLowerCase() === 'danny'; }
+	public isOwner(member: any): boolean { return member.memberType === MemberType.SELLER && String(member.memberNick).toLowerCase() === 'martin'; }
 
 	public async owner() {
-		const owner: any = await this.memberModel.findOne({ memberType: MemberType.SELLER, memberNick: /^DANNY$/i, memberStatus: 'ACTIVE' }).lean().exec();
+		const owner: any = await this.memberModel.findOne({ memberType: MemberType.SELLER, memberNick: /^MARTIN$/i, memberStatus: 'ACTIVE' }).lean().exec();
 		if (!owner) throw new InternalServerErrorException('Atelier inbox is unavailable.');
 		return owner;
 	}

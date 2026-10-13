@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
@@ -18,6 +19,9 @@ import { ServiceBookingUpdate } from "../../libs/dto/service-booking/service-boo
 import { Direction, Message } from "../../libs/enums/common.enum";
 import { BookingStatus } from "../../libs/enums/service.enum";
 import { ServiceStatus } from "../../libs/enums/service.enum";
+import { isAtelierBusinessTime } from "../service-schedules/atelier-business-hours";
+import { NotificationsService } from "../notifications/notifications.service";
+import { NotificationsGateway } from "../notifications/notifications.gateway";
 
 function getBookingServiceKind(service: {
   serviceCategory?: string;
@@ -41,11 +45,14 @@ function getBookingServiceKind(service: {
 
 @Injectable()
 export class ServiceBookingService {
+  private readonly logger = new Logger(ServiceBookingService.name);
   constructor(
     @InjectModel("ServiceBooking")
     private readonly bookingModel: Model<ServiceBooking>,
     @InjectModel("Service") private readonly serviceModel: Model<any>,
     @InjectModel("ServiceSchedule") private readonly scheduleModel: Model<any>,
+    private readonly notifications: NotificationsService,
+    private readonly notificationGateway: NotificationsGateway,
   ) {}
 
   public async createBooking(
@@ -173,23 +180,7 @@ export class ServiceBookingService {
         throw new BadRequestException(
           "This atelier is not available at the selected time.",
         );
-      const schedule: any = await this.scheduleModel
-        .findOne({
-          serviceId: (service as any)._id,
-          dayOfWeek: { $regex: new RegExp(`^${dayName}$`, "i") },
-          isWorking: true,
-        })
-        .lean()
-        .exec();
-      if (
-        !schedule ||
-        timeLabel < schedule.startTime ||
-        timeLabel >= schedule.endTime ||
-        (schedule.breakStartTime &&
-          schedule.breakEndTime &&
-          timeLabel >= schedule.breakStartTime &&
-          timeLabel < schedule.breakEndTime)
-      ) {
+      if (!isAtelierBusinessTime(time, timeLabel)) {
         throw new BadRequestException(
           "This atelier is not available at the selected time.",
         );
@@ -213,7 +204,7 @@ export class ServiceBookingService {
     const slotKey = `${providerId}:${dateLabel}:${timeLabel}`;
     const bookingReference = `HDJ-SVC-${new Types.ObjectId().toHexString().slice(-10).toUpperCase()}`;
     try {
-      return await this.bookingModel.create({
+      const booking = await this.bookingModel.create({
         ...input,
         serviceTitle: (service as any).serviceTitle,
         bookingDate: date,
@@ -229,6 +220,18 @@ export class ServiceBookingService {
         providerId: (service as any).memberId,
         bookingStatus: BookingStatus.REQUESTED,
       });
+      try {
+        const notification = await this.notifications.createForMember({
+          memberId: customerId,
+          group: "SERVICE_BOOKING",
+          title: "Atelier booking request received",
+          description: `Your request ${bookingReference} for ${String((service as any).serviceTitle)} was received. It is awaiting atelier confirmation.`,
+          bookingId: String((booking as any)._id),
+          serviceId: String((service as any)._id),
+        });
+        await this.notificationGateway.emitMember(customerId, notification);
+      } catch { this.logger.error("Booking saved, but its notification could not be delivered."); }
+      return booking;
     } catch (error) {
       if ((error as { code?: number })?.code === 11000)
         throw new BadRequestException(
@@ -270,26 +273,7 @@ export class ServiceBookingService {
         timeZone: "Asia/Seoul",
         weekday: "long",
       }).format(dayStart);
-      const schedule: any = await this.scheduleModel
-        .findOne({
-          serviceId: service._id,
-          dayOfWeek: { $regex: new RegExp(`^${dayOfWeek}$`, "i") },
-          isWorking: true,
-        })
-        .lean()
-        .exec();
-      unavailable.push(
-        ...slots.filter(
-          (time) =>
-            !schedule ||
-            time < schedule.startTime ||
-            time >= schedule.endTime ||
-            (schedule.breakStartTime &&
-              schedule.breakEndTime &&
-              time >= schedule.breakStartTime &&
-              time < schedule.breakEndTime),
-        ),
-      );
+      unavailable.push(...slots.filter((time) => !isAtelierBusinessTime(dayStart, time)));
     }
     const rows = await this.bookingModel
       .find({

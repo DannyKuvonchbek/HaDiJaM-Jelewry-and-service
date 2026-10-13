@@ -25,7 +25,7 @@ async function main(){
   const password='testPassword123',bcrypt=require('bcryptjs');
   const user=await members.create({memberNick:'sessionUser',memberPhone:'+998901111111',memberPassword:await bcrypt.hash(password,4),memberType:'USER',memberAddress:'Private address'});
   const admin=await members.create({memberNick:'sessionAdmin',memberPhone:'+998902222222',memberPassword:await bcrypt.hash(password,4),memberType:'ADMIN'});
-  const headers={Origin:'http://localhost:1017','X-Hadijam-CSRF':'1','Content-Type':'application/json'};
+  const headers={Origin:'http://localhost:1000','X-Hadijam-CSRF':'1','Content-Type':'application/json'};
   const login=async nick=>{
    const response=await fetch(base+'/graphql',{method:'POST',headers,body:JSON.stringify({query:'mutation($input:LoginInput!){login(input:$input){_id accessToken memberType}}',variables:{input:{memberNick:nick,memberPassword:password}}})});
    const result=await response.json();assert.equal(result.errors,undefined,JSON.stringify(result.errors));
@@ -68,6 +68,26 @@ async function main(){
    await conn.model('ServiceSchedule').updateOne({serviceId:bookedService._id},{$set:{isWorking:false}});
    const unavailable=await app.get(ServiceBookingService).getUnavailableSlots({serviceId:String(bookedService._id),date:nextDay,technician:rule.technician});assert.ok(rule.slots.every(time=>unavailable.includes(time)));
   }
+  const reviewProvider=await members.create({memberNick:'reviewAtelier',memberPhone:'+998907777777',memberPassword:'unused',memberType:'SELLER'});
+  const reviewService=await conn.model('Service').create({serviceType:'ATELIER',serviceStatus:'ACTIVE',serviceTitle:'Test Review Atelier',serviceCategory:'REPAIR',servicePrice:45,serviceDuration:'Same day',serviceImages:[],memberId:reviewProvider._id});
+  const sellerSession=await service.create(String(provider._id));
+  const commentQuery='mutation($input:CommentInput!){createComment(input:$input){_id memberId commentContent}}';
+  const reviewQuery='mutation($input:ServiceReviewInput!){createServiceReview(input:$input){_id memberId reviewContent}}';
+  const authenticatedGql=async(query,input,access)=>{const response=await fetch(base+'/graphql',{method:'POST',headers:{...headers,...(access?{Authorization:'Bearer '+access}:{})},body:JSON.stringify({query,variables:{input}})});return response.json();};
+  for(const [actor,access] of [[user,first.accessToken],[provider,sellerSession.accessToken]]) {
+   const commentInput={commentGroup:'SERVICE',commentRefId:String(reviewService._id),commentContent:'Test comment from '+actor.memberType};
+   assert.ok((await authenticatedGql(commentQuery,commentInput)).errors);
+   const commentResult=await authenticatedGql(commentQuery,commentInput,access);assert.equal(commentResult.errors,undefined,JSON.stringify(commentResult.errors));assert.equal(commentResult.data.createComment.memberId,String(actor._id));
+   const completed=await conn.model('ServiceBooking').create({serviceId:reviewService._id,customerId:actor._id,providerId:reviewProvider._id,bookingDate:new Date(),bookingTime:new Date(),bookingStatus:'COMPLETED',bookingPrice:45,bookingReference:'REVIEW-'+actor.memberType,selectedTechnician:'Test specialist',customerName:'Test customer',customerPhone:'+998901111111',customerAddress:'Test address'});
+   const reviewInput={serviceId:String(reviewService._id),bookingId:String(completed._id),rating:5,reviewContent:'Excellent test atelier experience',reviewImages:[]};
+   const result=await authenticatedGql(reviewQuery,reviewInput,access);assert.equal(result.errors,undefined,JSON.stringify(result.errors));assert.equal(result.data.createServiceReview.memberId,String(actor._id));
+   assert.ok((await authenticatedGql(reviewQuery,reviewInput,access)).errors);
+   const foreignAccess=actor.memberType==='USER'?sellerSession.accessToken:first.accessToken;
+   assert.ok((await authenticatedGql(reviewQuery,reviewInput,foreignAccess)).errors);
+   const incomplete=await conn.model('ServiceBooking').create({...completed.toObject(),_id:new mongoose.Types.ObjectId(),bookingReference:'INCOMPLETE-'+actor.memberType,bookingStatus:'REQUESTED'});
+   assert.ok((await authenticatedGql(reviewQuery,{...reviewInput,bookingId:String(incomplete._id)},access)).errors);
+  }
+  console.log('PASS: USER and SELLER service comments/reviews, no-photo reviews, anonymous/foreign/incomplete booking rejection and duplicate review protection.');
   console.log('PASS: salon reservation and all six atelier frontend staff/slot contracts, prices, duplicate slots and closed schedules.');
   const jwt=new JwtService({secret:process.env.JWT_SECRET}),claims=jwt.decode(first.accessToken);
   assert.deepEqual(Object.keys(claims).sort(),['aud','exp','iat','iss','sid','sub']);assert.equal(claims.exp-claims.iat,240);

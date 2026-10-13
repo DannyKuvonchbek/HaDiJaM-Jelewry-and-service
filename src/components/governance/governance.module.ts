@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_INTERCEPTOR } from "@nestjs/core";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AuthModule } from "../auth/auth.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { GovernanceService } from "./governance.service";
 import { GovernanceResolver } from "./governance.resolver";
 import { AdminRecordsService } from "./admin-records.service";
@@ -32,6 +33,7 @@ import CommentSchema from "../../schemas/Comment.model";
 @Module({
   imports: [
     AuthModule,
+    NotificationsModule,
     MongooseModule.forFeature([
       { name: "Member", schema: MemberSchema },
       { name: "Notification", schema: NotificationSchema },

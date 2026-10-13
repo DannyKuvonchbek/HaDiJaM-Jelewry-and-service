@@ -5,8 +5,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 	imports: [
 		MongooseModule.forRootAsync({
 			useFactory: () => {
-				const uri = process.env.MONGODB_URI ?? process.env.MONGO_URL;
-				if (!uri) throw new Error('MONGODB_URI or MONGO_URL is required');
+				const uriKey = process.env.NODE_ENV === 'production' ? 'MONGODB_URI' : 'MONGO_URL';
+				const uri = process.env[uriKey];
+				if (!uri) throw new Error(`${uriKey} is required for ${process.env.NODE_ENV ?? 'development'}`);
 				return { uri };
 			},
 		}),

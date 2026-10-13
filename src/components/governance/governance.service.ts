@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   Injectable,
   OnModuleInit,
+  OnModuleDestroy,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { InjectConnection, InjectModel } from "@nestjs/mongoose";
@@ -14,6 +16,7 @@ import {
   SellerReviewInput,
 } from "./governance.dto";
 import { smsEnabled, normalizeSmsPhone } from "./sms.service";
+import { NotificationsGateway } from "../notifications/notifications.gateway";
 export const SELLER_PENDING_MESSAGE =
   "Please wait. Your seller application is being reviewed by our administrator. We will notify you as soon as a decision is made.";
 export const SELLER_APPROVED_MESSAGE =
@@ -24,13 +27,17 @@ export const objectId = (id: string) => {
   return new Types.ObjectId(id);
 };
 @Injectable()
-export class GovernanceService implements OnModuleInit {
+export class GovernanceService implements OnModuleInit, OnModuleDestroy {
+  private approvalTimer?: ReturnType<typeof setInterval>;
+  private approving = false;
+  private readonly logger = new Logger(GovernanceService.name);
   constructor(
     @InjectConnection() readonly connection: Connection,
     @InjectModel("SellerApplication") readonly applications: Model<any>,
     @InjectModel("PrivateDocument") readonly documents: Model<any>,
     @InjectModel("Member") readonly members: Model<any>,
     @InjectModel("Notification") readonly notifications: Model<any>,
+    private readonly notificationGateway: NotificationsGateway,
     @InjectModel("SmsJob") readonly sms: Model<any>,
     @InjectModel("AdminAudit") readonly audits: Model<any>,
   ) {}
@@ -45,6 +52,50 @@ export class GovernanceService implements OnModuleInit {
         this.notifications,
       ].map((model) => model.init()),
     );
+    await this.applications.updateMany(
+      { status: "PENDING", autoApproveAt: { $exists: false } },
+      { $set: { autoApproveAt: new Date(Date.now() + 5000) } },
+    );
+    this.approvalTimer = setInterval(
+      () => void this.approveDueApplications(),
+      500,
+    );
+    this.approvalTimer.unref();
+  }
+  onModuleDestroy() {
+    if (this.approvalTimer) clearInterval(this.approvalTimer);
+  }
+  private async approveDueApplications() {
+    if (this.approving) return;
+    this.approving = true;
+    try {
+      const due = await this.applications
+        .find({ status: "PENDING", autoApproveAt: { $lte: new Date() } })
+        .limit(100)
+        .lean();
+      for (const application of due) {
+        try {
+          await this.review(
+            String(application.memberId),
+            {
+              applicationId: String(application._id),
+              revision: application.revision,
+              decision: "APPROVED",
+            },
+            true,
+          );
+        } catch (error) {
+          if (!(error instanceof ConflictException))
+            this.logger.error(
+              "Automatic seller approval failed; it will be retried.",
+            );
+        }
+      }
+    } catch {
+      this.logger.error("Could not load automatic seller approvals; retrying.");
+    } finally {
+      this.approving = false;
+    }
   }
   async submit(memberId: string, input: SellerApplicationInput) {
     const member: any = await this.members.findById(memberId).lean();
@@ -54,27 +105,27 @@ export class GovernanceService implements OnModuleInit {
       member.memberStatus !== "ACTIVE"
     )
       throw new ForbiddenException("Only active user accounts can apply.");
+    if (!input.businessName.trim() || !input.businessAddress.trim())
+      throw new BadRequestException("Provide your business name and address.");
     if (
-      !input.businessName.trim() ||
-      !input.businessAddress.trim() ||
+      input.idDocumentId &&
+      input.businessDocumentId &&
       input.idDocumentId === input.businessDocumentId
     )
       throw new BadRequestException(
-        "Provide business details and two separate documents.",
+        "Choose separate ID and business documents.",
       );
-    const ids = [
-      objectId(input.idDocumentId),
-      objectId(input.businessDocumentId),
-    ];
+    const suppliedIds = [input.idDocumentId, input.businessDocumentId]
+      .filter(Boolean)
+      .map((id) => objectId(id!));
     if (
+      suppliedIds.length &&
       (await this.documents.countDocuments({
-        _id: { $in: ids },
+        _id: { $in: suppliedIds },
         memberId: objectId(memberId),
-      })) !== 2
+      })) !== suppliedIds.length
     )
-      throw new BadRequestException(
-        "Both documents must belong to your account.",
-      );
+      throw new BadRequestException("Documents must belong to your account.");
     // A single transaction reserves the unique member application and publishes inbox entries.
     try {
       return await this.connection.transaction(async (session) => {
@@ -87,9 +138,14 @@ export class GovernanceService implements OnModuleInit {
         const values = {
           businessName: input.businessName.trim(),
           businessAddress: input.businessAddress.trim(),
-          idDocumentId: ids[0],
-          businessDocumentId: ids[1],
+          idDocumentId: input.idDocumentId
+            ? objectId(input.idDocumentId)
+            : null,
+          businessDocumentId: input.businessDocumentId
+            ? objectId(input.businessDocumentId)
+            : null,
           status: "PENDING",
+          autoApproveAt: new Date(Date.now() + 5000),
           rejectionReason: null,
           reviewedBy: null,
           reviewedAt: null,
@@ -151,7 +207,7 @@ export class GovernanceService implements OnModuleInit {
       throw error;
     }
   }
-  async review(adminId: string, input: SellerReviewInput) {
+  async review(adminId: string, input: SellerReviewInput, automatic = false) {
     if (
       input.decision === "REJECTED" &&
       (!input.reason || input.reason.trim().length < 5)
@@ -159,11 +215,19 @@ export class GovernanceService implements OnModuleInit {
       throw new BadRequestException(
         "Please enter a rejection reason (at least 5 characters).",
       );
-    return this.connection.transaction(async (session) => {
+    let notificationToPublish: any;
+    const result = await this.connection.transaction(async (session) => {
       const current: any = await this.applications
         .findById(objectId(input.applicationId))
         .session(session);
       if (!current) throw new NotFoundException("Application not found.");
+      if (
+        automatic &&
+        (!current.autoApproveAt ||
+          current.autoApproveAt > new Date() ||
+          input.decision !== "APPROVED")
+      )
+        throw new ConflictException("Automatic approval is not due yet.");
       if (current.revision !== input.revision)
         throw new ConflictException(
           "A newer application revision exists. Refresh before reviewing.",
@@ -178,7 +242,7 @@ export class GovernanceService implements OnModuleInit {
         {
           $set: {
             status: input.decision,
-            reviewedBy: adminId,
+            reviewedBy: automatic ? null : adminId,
             reviewedAt: new Date(),
             rejectionReason:
               input.decision === "REJECTED" ? input.reason!.trim() : null,
@@ -211,7 +275,7 @@ export class GovernanceService implements OnModuleInit {
       const message = approved
         ? SELLER_APPROVED_MESSAGE
         : `Your seller application was not approved. Reason: ${input.reason!.trim()} Please update your documents and resubmit your application.`;
-      await this.notifications.create(
+      const createdNotifications = await this.notifications.create(
         [
           {
             notificationType: "MESSAGE",
@@ -227,6 +291,7 @@ export class GovernanceService implements OnModuleInit {
         ],
         { session, ordered: true },
       );
+      notificationToPublish = createdNotifications[0];
       if (approved)
         await this.sms.create(
           [
@@ -244,8 +309,11 @@ export class GovernanceService implements OnModuleInit {
       await this.audits.create(
         [
           {
-            adminId,
-            action: `SELLER_${input.decision}`,
+            adminId: automatic ? undefined : adminId,
+            actorType: automatic ? "SYSTEM" : "ADMIN",
+            action: automatic
+              ? "SELLER_AUTO_APPROVED"
+              : `SELLER_${input.decision}`,
             targetId: String(application._id),
             details: JSON.stringify({
               revision: application.revision,
@@ -257,6 +325,8 @@ export class GovernanceService implements OnModuleInit {
       );
       return application;
     });
+    if (notificationToPublish) await this.notificationGateway.emitMember(String(notificationToPublish.receiverId), notificationToPublish);
+    return result;
   }
   async mine(memberId: string) {
     return this.applications.findOne({ memberId }).lean();

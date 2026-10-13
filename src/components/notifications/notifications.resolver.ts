@@ -10,6 +10,8 @@ import { MemberType } from '../../libs/enums/member.enum';
 import { OrdinaryInquiry } from '../../libs/dto/product/product.input';
 import { Notification, Notifications } from '../../libs/dto/notification/notification';
 import { AdminProductReviewMessageInput } from '../../libs/dto/notification/notification.input';
+import { NotificationsService } from './notifications.service';
+import { NotificationsGateway } from './notifications.gateway';
 
 @Resolver()
 export class NotificationsResolver {
@@ -17,6 +19,8 @@ export class NotificationsResolver {
     @InjectModel('Notification') private readonly notificationModel: Model<any>,
     @InjectModel('Product') private readonly productModel: Model<any>,
     @InjectModel('Member') private readonly memberModel: Model<any>,
+    private readonly notifications: NotificationsService,
+    private readonly gateway: NotificationsGateway,
   ) {}
 
   @Roles(MemberType.ADMIN)
@@ -31,7 +35,7 @@ export class NotificationsResolver {
     if (!product) throw new BadRequestException('Product not found.');
     const seller = await this.memberModel.findById(product.memberId).select('_id memberType').lean().exec() as any;
     if (!seller || seller.memberType !== MemberType.SELLER) throw new BadRequestException('The product owner is not an active seller account.');
-    return this.notificationModel.create({
+    const notification = await this.notificationModel.create({
       notificationType: 'MESSAGE',
       notificationStatus: 'UNREAD',
       notificationGroup: 'PRODUCT_REVIEW',
@@ -41,6 +45,8 @@ export class NotificationsResolver {
       receiverId: seller._id,
       productId: product._id,
     });
+    await this.gateway.emitMember(String(seller._id), notification);
+    return notification;
   }
 
   @UseGuards(AuthGuard)
@@ -49,15 +55,7 @@ export class NotificationsResolver {
     @Args('input') input: OrdinaryInquiry,
     @AuthMember('_id') memberId: string,
   ): Promise<Notifications> {
-    const page = Math.max(1, input.page || 1);
-    const limit = Math.min(100, Math.max(1, input.limit || 20));
-    const receiverId = new Types.ObjectId(memberId);
-    const [list, total, unreadCount] = await Promise.all([
-      this.notificationModel.find({ receiverId }).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean().exec(),
-      this.notificationModel.countDocuments({ receiverId }).exec(),
-      this.notificationModel.countDocuments({ receiverId, notificationStatus: 'UNREAD' }).exec(),
-    ]);
-    return { list, metaCounter: [{ total }], unreadCount } as unknown as Notifications;
+    return this.notifications.listForMember(memberId, Math.max(1, input.page || 1), Math.min(100, Math.max(1, input.limit || 20))) as any;
   }
 
   @UseGuards(AuthGuard)
@@ -67,11 +65,7 @@ export class NotificationsResolver {
     @AuthMember('_id') memberId: string,
   ): Promise<Notification> {
     if (!Types.ObjectId.isValid(notificationId)) throw new BadRequestException('Invalid message.');
-    const notification = await this.notificationModel.findOneAndUpdate(
-      { _id: notificationId, receiverId: new Types.ObjectId(memberId) },
-      { $set: { notificationStatus: 'READ' } },
-      { new: true },
-    ).lean().exec();
+    const notification = await this.notifications.markRead(memberId, notificationId);
     if (!notification) throw new BadRequestException('Message not found.');
     return notification as unknown as Notification;
   }
