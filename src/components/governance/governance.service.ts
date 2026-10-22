@@ -28,8 +28,8 @@ export const objectId = (id: string) => {
 };
 @Injectable()
 export class GovernanceService implements OnModuleInit, OnModuleDestroy {
-  private approvalTimer?: ReturnType<typeof setInterval>;
-  private approving = false;
+  private approvalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private stopping = false;
   private readonly logger = new Logger(GovernanceService.name);
   constructor(
     @InjectConnection() readonly connection: Connection,
@@ -56,46 +56,40 @@ export class GovernanceService implements OnModuleInit, OnModuleDestroy {
       { status: "PENDING", autoApproveAt: { $exists: false } },
       { $set: { autoApproveAt: new Date(Date.now() + 5000) } },
     );
-    this.approvalTimer = setInterval(
-      () => void this.approveDueApplications(),
-      500,
-    );
-    this.approvalTimer.unref();
+    // Recover pending work once after a restart; no background database polling.
+    const pending = await this.applications.find({ status: "PENDING" }).lean();
+    for (const application of pending) this.scheduleApproval(application);
   }
   onModuleDestroy() {
-    if (this.approvalTimer) clearInterval(this.approvalTimer);
+    this.stopping = true;
+    for (const timer of this.approvalTimers.values()) clearTimeout(timer);
+    this.approvalTimers.clear();
   }
-  private async approveDueApplications() {
-    if (this.approving) return;
-    this.approving = true;
-    try {
-      const due = await this.applications
-        .find({ status: "PENDING", autoApproveAt: { $lte: new Date() } })
-        .limit(100)
-        .lean();
-      for (const application of due) {
-        try {
-          await this.review(
-            String(application.memberId),
-            {
-              applicationId: String(application._id),
-              revision: application.revision,
-              decision: "APPROVED",
-            },
-            true,
-          );
-        } catch (error) {
-          if (!(error instanceof ConflictException))
-            this.logger.error(
-              "Automatic seller approval failed; it will be retried.",
-            );
-        }
+  private scheduleApproval(application: any, attempt = 0) {
+    const key = `${application._id}:${application.revision}`;
+    if (this.stopping || this.approvalTimers.has(key)) return;
+    const dueAt = new Date(application.autoApproveAt).getTime();
+    const delay = attempt ? Math.min(5000 * 2 ** (attempt - 1), 60000)
+      : Math.max(0, (Number.isFinite(dueAt) ? dueAt : Date.now() + 5000) - Date.now());
+    const timer = setTimeout(async () => {
+      try {
+        await this.review(String(application.memberId), {
+          applicationId: String(application._id),
+          revision: application.revision,
+          decision: "APPROVED",
+        }, true);
+        this.approvalTimers.delete(key);
+      } catch (error) {
+        this.approvalTimers.delete(key);
+        if (error instanceof ConflictException || error instanceof NotFoundException) return;
+        const name = error instanceof Error ? error.name : "UnknownError";
+        this.logger.error(`Automatic seller approval failed (${name}); application=${application._id}; attempt=${attempt + 1}.`);
+        // Retry only this submitted application, with a bounded backoff.
+        if (attempt < 3) this.scheduleApproval(application, attempt + 1);
       }
-    } catch {
-      this.logger.error("Could not load automatic seller approvals; retrying.");
-    } finally {
-      this.approving = false;
-    }
+    }, delay);
+    timer.unref();
+    this.approvalTimers.set(key, timer);
   }
   async submit(memberId: string, input: SellerApplicationInput) {
     const member: any = await this.members.findById(memberId).lean();
@@ -128,7 +122,7 @@ export class GovernanceService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("Documents must belong to your account.");
     // A single transaction reserves the unique member application and publishes inbox entries.
     try {
-      return await this.connection.transaction(async (session) => {
+      const submitted = await this.connection.transaction(async (session) => {
         const current: any = await this.applications
           .findOne({ memberId })
           .session(session);
@@ -197,12 +191,17 @@ export class GovernanceService implements OnModuleInit, OnModuleDestroy {
         );
         return application;
       });
+      this.scheduleApproval(submitted);
+      return submitted;
     } catch (error) {
       if ((error as { code?: number }).code === 11000) {
         const existing: any = await this.applications
           .findOne({ memberId })
           .lean();
-        if (existing?.status === "PENDING") return existing;
+        if (existing?.status === "PENDING") {
+          this.scheduleApproval(existing);
+          return existing;
+        }
       }
       throw error;
     }
